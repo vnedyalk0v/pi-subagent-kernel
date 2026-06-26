@@ -2,7 +2,7 @@
 
 ## Overview
 
-Pi SubAgents Next should be a small runtime kernel exposed through a Pi extension.
+pi-subagent-kernel should be a small runtime kernel exposed through a Pi extension.
 
 ```text
 Pi main session

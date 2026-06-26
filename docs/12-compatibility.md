@@ -34,7 +34,7 @@ Codex custom agents use standalone TOML files with required `name`, `description
 
 ### Safety adaptation
 
-Codex child agents may inherit sandbox policy. Pi SubAgents Next should instead compute effective policy from global caps plus imported config. Imported config must not silently increase permission.
+Codex child agents may inherit sandbox policy. pi-subagent-kernel should instead compute effective policy from global caps plus imported config. Imported config must not silently increase permission.
 
 ## Claude Code compatibility
 

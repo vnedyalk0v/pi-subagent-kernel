@@ -2,13 +2,13 @@
 
 ## Product name
 
-Working name: **Pi SubAgents Next**.
+Working name: **pi-subagent-kernel**.
 
 Package name candidates:
 
 - `@pi-subagents/extension`
-- `pi-subagents-next`
-- `@your-scope/pi-subagents-next`
+- `pi-subagent-kernel`
+- `@your-scope/pi-subagent-kernel`
 
 Use a scoped package if publishing externally. Use an unscoped package only if the npm name is intentionally owned and maintained.
 

@@ -7,7 +7,7 @@ Use these prompts in a new repo after copying this documentation pack.
 ```text
 Read AGENTS.md and docs/00-source-basis.md first.
 
-Create the initial TypeScript package scaffold for a Pi extension implementing Pi SubAgents Next. Do not implement all features. Create package.json, tsconfig, test setup, src/index.ts, and module folders matching docs/03-architecture.md. Add a minimal extension entrypoint that can load and register no-op diagnostics only. Add tests that verify the package exports load. Do not invent Pi APIs; inspect installed package typings before registering real tools.
+Create the initial TypeScript package scaffold for a Pi extension implementing pi-subagent-kernel. Do not implement all features. Create package.json, tsconfig, test setup, src/index.ts, and module folders matching docs/03-architecture.md. Add a minimal extension entrypoint that can load and register no-op diagnostics only. Add tests that verify the package exports load. Do not invent Pi APIs; inspect installed package typings before registering real tools.
 ```
 
 ## Prompt 2 — Implement schemas
