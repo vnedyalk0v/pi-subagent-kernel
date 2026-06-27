@@ -1,4 +1,4 @@
-export const AGENT_NAME_PATTERN = /^[a-z][a-z0-9_-]{1,63}$/;
+const AGENT_NAME_PATTERN = /^[a-z][a-z0-9_-]{1,63}$/;
 
 export const RUNTIME_BACKENDS = Object.freeze(["sdk", "subprocess", "worktree", "mux", "remote", "auto"] as const);
 export type RuntimeBackend = (typeof RUNTIME_BACKENDS)[number];
@@ -27,7 +27,7 @@ export type ChildExtensionPolicy = (typeof CHILD_EXTENSION_POLICIES)[number];
 export const RESULT_MODES = Object.freeze(["summary", "json", "patch", "artifact", "mixed"] as const);
 export type ResultMode = (typeof RESULT_MODES)[number];
 
-export const RESERVED_AGENT_NAMES = new Set(["subagent_spawn", "subagent_status", "subagent_result", "subagent_cancel"]);
+const RESERVED_AGENT_NAMES = Object.freeze(["subagent_spawn", "subagent_status", "subagent_result", "subagent_cancel"] as const);
 
 export interface AgentSandbox {
   filesystem: FilesystemPolicy;
@@ -173,7 +173,7 @@ export function validateAgentDefinition(input: unknown): ValidationResult<AgentD
       message: "Name must match /^[a-z][a-z0-9_-]{1,63}$/.",
     });
   }
-  if (name && RESERVED_AGENT_NAMES.has(name.toLowerCase())) {
+  if (name && (RESERVED_AGENT_NAMES as readonly string[]).includes(name.toLowerCase())) {
     issues.push({ path: "name", message: `Name "${name}" is reserved for a subagent tool.` });
   }
 
