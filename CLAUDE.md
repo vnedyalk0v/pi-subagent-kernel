@@ -2,6 +2,8 @@
 
 Read `AGENTS.md` first. It is the source of truth for repository-level engineering rules.
 
+Project identity: **Pi SubAgent Kernel** (`pi-subagent-kernel`).
+
 Claude-specific reminders:
 
 - Use subagents only when the task is independent enough to justify context isolation.

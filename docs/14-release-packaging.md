@@ -8,7 +8,7 @@ Conceptual `package.json`:
 
 ```json
 {
-  "name": "@your-scope/pi-subagent-kernel",
+  "name": "pi-subagent-kernel",
   "version": "0.1.0",
   "type": "module",
   "main": "dist/index.js",
@@ -82,10 +82,10 @@ Before publishing:
 
 ## Install docs
 
-Document both forms:
+Document the npm install form:
 
 ```bash
-pi install npm:@your-scope/pi-subagent-kernel
+pi install npm:pi-subagent-kernel
 ```
 
 Development:

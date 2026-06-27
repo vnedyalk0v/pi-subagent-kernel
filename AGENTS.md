@@ -14,13 +14,7 @@ Use these names exactly:
 - GitHub repository: **vnedyalk0v/pi-subagent-kernel**
 - Default branch: **main**
 
-Do not introduce these old or incorrect names:
-
-- `Pi Sugagent Kernel`
-- `Pi Subagent Next`
-- `Pi SubAgents Next`
-- `Pi SubAgent Next`
-- `pi-subagents-next`
+Do not introduce non-canonical historical project names or variants that change the spelling, capitalization, pluralization, or package slug above.
 
 If you find inconsistent naming, create or update work under issue `#1` unless the current task explicitly says otherwise.
 
@@ -273,7 +267,7 @@ For documentation-only changes, run relevant checks such as:
 
 ```bash
 git diff --check
-grep -R "Pi Sugagent Kernel\|Pi Subagent Next\|Pi SubAgents Next\|Pi SubAgent Next\|pi-subagents-next" -n . || true
+# Search the repository for any issue-specific forbidden strings.
 ```
 
 Never claim that tests pass unless you ran them and saw a passing result. If tests cannot run, state the exact reason.

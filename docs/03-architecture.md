@@ -31,17 +31,13 @@ The extension should expose a small tool surface to the parent agent. The kernel
 
 ## Package decomposition
 
-Recommended eventual packages:
+Recommended MVP package:
 
 ```text
-@pi-subagents/core        # runtime-neutral state machine, schemas, policies
-@pi-subagents/extension   # Pi extension entrypoint, tools, commands, UI
-@pi-subagents/backends    # optional backend implementations
-@pi-subagents/compat      # Codex/Claude/OpenCode importers
-@pi-subagents/workflows   # optional DAG/fanout workflows, post-MVP
+pi-subagent-kernel        # Pi extension entrypoint, tools, commands, UI, schemas, and backends
 ```
 
-For MVP, a single package is acceptable if modules are structured so they can split later.
+Future package split names are TBD. For MVP, a single package is acceptable if modules are structured so they can split later.
 
 ## Runtime components
 

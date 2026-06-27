@@ -7,7 +7,7 @@ Project purpose: Track the implementation of the Pi SubAgent Kernel from documen
 Setup summary comment: <https://github.com/vnedyalk0v/pi-subagent-kernel/issues/3#issuecomment-4809417546>
 ## Source docs inspected
 `README.md`, `AGENTS.md`, `CLAUDE.md`, `MANIFEST.md`, all files under `docs/`, and all example agent definitions under `examples/agents/` were reviewed before creating the tracking structure.
-A naming-hygiene issue was created for canonical display/package naming. A setup-time grep did not find the exact forbidden strings `Pi Sugagent Kernel`, `Pi Subagent Next`, or `Pi SubAgents Next`, but README/package naming still needs normalization to the requested canonical names.
+A naming-hygiene issue was created for canonical display/package naming. A setup-time grep did not find historical project-name variants, but README/package naming still needs normalization to the requested canonical names.
 ## Project fields
 - Reused built-in `Status` field and updated options to: Backlog, Ready, In Progress, In Review, Blocked, Done.
 - Created `Priority`, `Area`, `Phase`, `Risk`, and `Source Doc` fields.
