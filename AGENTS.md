@@ -1,76 +1,598 @@
-# Instructions for AI Coding Agents
+# AGENTS.md — AI Coding Agent Workflow
 
-These are repository-level instructions for Codex, Claude Code, Pi, Cursor, or any other AI coding agent used to implement this project.
+These are repository-level instructions for every AI coding agent working in `vnedyalk0v/pi-subagent-kernel`, including Codex, Claude Code, Pi, Cursor, Copilot-style agents, or any other automated implementation agent.
 
-## Ground rules
+The goal of this file is to make agent work traceable from issue → branch → pull request → automated review → fix loop → owner review.
 
-1. Read `docs/00-source-basis.md` before making architecture claims.
-2. Treat source-backed facts and design recommendations differently.
-3. Do not invent Pi APIs. If an API name is not in the current Pi docs or installed package typings, inspect the installed dependencies before using it.
-4. Prefer a minimal MVP over a broad unfinished framework.
-5. Every public tool, command, schema, and lifecycle state must have tests.
-6. Safety defaults must be deny-by-default for nested agents, write access, network access, MCP servers, and project-local agent definitions.
-7. Do not let child agents silently escalate permissions beyond the parent request.
-8. Do not pass the full parent transcript to a child unless the caller explicitly requests `inheritContext: full`.
-9. Do not add automatic proactive delegation in MVP. The parent agent must call the subagent tool explicitly.
-10. All long-running work must support cancellation through an `AbortSignal` or equivalent process kill path.
+## 1. Canonical project identity
 
-## Definition of done
+Use these names exactly:
 
-A feature is done only when:
+- Display name: **Pi SubAgent Kernel**
+- Repository/package name: **pi-subagent-kernel**
+- GitHub owner: **vnedyalk0v**
+- GitHub repository: **vnedyalk0v/pi-subagent-kernel**
+- Default branch: **main**
 
-- The behavior is described in Markdown docs or inline comments.
-- Runtime validation rejects invalid input with a clear error.
-- Unit tests cover success and failure cases.
-- Integration tests cover at least one real or simulated Pi extension flow.
-- Result details are structured and inspectable.
-- No logs include secrets, raw API keys, or hidden chain-of-thought content.
+Do not introduce these old or incorrect names:
 
-## Implementation style
+- `Pi Sugagent Kernel`
+- `Pi Subagent Next`
+- `Pi SubAgents Next`
+- `Pi SubAgent Next`
+- `pi-subagents-next`
 
-Use small modules with stable interfaces:
+If you find inconsistent naming, create or update work under issue `#1` unless the current task explicitly says otherwise.
+
+## 2. Authority and scope
+
+1. Direct instructions from the repository owner in the current task override this file.
+2. This file overrides general style preferences in lower-level documentation.
+3. Issue acceptance criteria override broad roadmap language.
+4. Source-backed facts in `docs/00-source-basis.md` must be treated differently from design recommendations.
+5. Do not invent Pi APIs, GitHub automation behavior, package names, commands, or runtime support.
+6. If an API or CLI behavior is not verified from docs, installed typings, source code, or local inspection, mark it as unverified and do not build production behavior on top of it.
+
+## 3. Required read order before implementation
+
+Before changing code or docs, read the relevant issue and then the source documents listed in that issue.
+
+For a new task, use this default read order:
+
+1. `README.md`
+2. `AGENTS.md`
+3. `CLAUDE.md`, if present
+4. `docs/00-source-basis.md`
+5. The issue body and all issue comments
+6. The source docs listed in the issue
+7. Related docs under `docs/`
+8. Relevant files under `examples/agents/`
+9. Existing implementation files, tests, and CI configuration
+
+If `docs/github-tracking-setup.md` or `SETUP_TRACKING.md` exists, read it before changing project tracking metadata.
+
+## 4. Current implementation order
+
+Work must follow the milestone order unless the owner explicitly instructs otherwise.
+
+Current planned order:
+
+1. `M0 — Repo Hygiene & Governance` — issues `#1` to `#3`
+2. `M1 — Contracts & Schemas` — issues `#4` to `#7`
+3. `M2 — Pi Extension Shell` — issues `#8` to `#9`
+4. `M3 — Agent Registry & Loader` — issues `#10` to `#12`
+5. `M4 — Run Registry & Tool Surface` — issues `#13` to `#17`
+6. `M5 — Mock Backend MVP` — issues `#18` to `#19`
+7. `M6 — Safety Policy, Tests & CI` — issues `#20` to `#22`
+8. `M7 — Subprocess Backend Alpha` — issues `#23` to `#24`
+9. `M8 — Dogfood Alpha` — issues `#25` to `#26`
+10. `M9 — Public Beta / npm Release` — issues `#27` to `#28`
+11. `Post-MVP — Compat, Worktree, Workflows & UI` — issues `#29` to `#32`
+
+Do not start Post-MVP work while MVP issues are still open unless the owner explicitly asks for it.
+
+## 5. Issue selection rules
+
+When choosing work autonomously:
+
+1. List open issues and open PRs first.
+2. Do not start a new issue if there is already an open PR for the same issue.
+3. Choose the earliest milestone with open, unblocked issues.
+4. Within that milestone, choose by priority: `priority:p0`, then `priority:p1`, then `priority:p2`, then `priority:p3`.
+5. Within the same priority, choose the lowest issue number.
+6. Skip issues labeled `status:blocked` or `status:needs-decision` unless the current task is to unblock or decide them.
+7. Respect explicit dependencies in the issue body.
+8. Prefer one issue per branch and one issue per PR.
+9. Do not bundle unrelated issues to reduce PR count.
+10. If the issue is too large, propose a split before implementing.
+
+Useful commands:
+
+```bash
+gh repo view --json nameWithOwner,url
+gh issue list --state open --limit 100 --json number,title,labels,milestone,assignees
+gh pr list --state open --json number,title,headRefName,assignees,isDraft
+```
+
+If the GitHub CLI is unavailable, use the available GitHub integration or the GitHub UI. Do not guess issue state.
+
+## 6. Assignment rules
+
+All issues and pull requests must be assigned to the owner:
+
+```text
+vnedyalk0v
+```
+
+Before starting work on an issue:
+
+```bash
+gh issue edit <issue-number> --add-assignee vnedyalk0v
+```
+
+After opening a PR:
+
+```bash
+gh pr edit <pr-number> --add-assignee vnedyalk0v
+```
+
+If assignment fails because of permissions or GitHub API limitations, leave a comment on the issue or PR explaining the failure and continue only if the owner explicitly allowed work to proceed.
+
+## 7. Project board workflow
+
+The project is:
+
+```text
+Pi SubAgent Kernel — Build Board
+```
+
+Expected fields:
+
+- `Status`
+- `Priority`
+- `Area`
+- `Phase`
+- `Risk`
+- `Source Doc`
+
+When possible, keep project status synchronized:
+
+1. `Backlog` — issue exists but work has not started.
+2. `Ready` — issue is unblocked and ready for implementation.
+3. `In Progress` — branch exists and implementation has started.
+4. `In Review` — PR is open.
+5. `Blocked` — work cannot continue without owner input or external dependency.
+6. `Done` — PR is merged and the linked issue is closed.
+
+Do not mark project items as `Done` before merge. If the project API is unavailable, add a short PR or issue comment with the intended status change.
+
+## 8. Branch workflow
+
+Never work directly on `main`.
+
+Before starting:
+
+```bash
+git checkout main
+git pull --ff-only
+```
+
+Branch naming:
+
+```text
+issue-<number>/<short-kebab-summary>
+```
+
+Examples:
+
+```text
+issue-1/normalize-project-naming
+issue-4/agent-definition-schema
+issue-14/subagent-spawn-mock-backend
+```
+
+Use small, reviewable commits. Prefer commit messages like:
+
+```text
+chore(docs): normalize project naming
+feat(contracts): add AgentDefinition schema
+test(safety): enforce default permission policy
+fix(loader): reject duplicate agent names
+```
+
+## 9. Issue title and PR title conventions
+
+Issue titles should be imperative, scoped, and outcome-oriented.
+
+Good issue titles:
+
+```text
+Define core AgentDefinition schema
+Implement in-memory RunRegistry
+Add CI workflow for build, typecheck, lint, and tests
+```
+
+Poor issue titles:
+
+```text
+Fix stuff
+Implement everything
+Subagents
+Various improvements
+```
+
+PR titles must include the milestone prefix and issue number:
+
+```text
+M0: Normalize project naming (#1)
+M1: Define AgentDefinition schema (#4)
+M4: Implement subagent_spawn with mock backend (#14)
+```
+
+If a PR intentionally covers multiple issues, list every issue number in the title or body and explain why one PR is justified.
+
+## 10. Pull request body requirements
+
+Every PR body must include:
+
+```markdown
+## Linked issue
+Closes #<issue-number>
+
+## Summary
+- <short bullet 1>
+- <short bullet 2>
+
+## Source docs
+- `<doc path>`
+- `<doc path>`
+
+## Acceptance criteria evidence
+- [ ] <criterion from issue>
+- [ ] <criterion from issue>
+
+## Tests and validation
+- [ ] `npm run typecheck --if-present`
+- [ ] `npm run lint --if-present`
+- [ ] `npm run test --if-present`
+- [ ] `npm run build --if-present`
+- [ ] Other: <command or reason not run>
+
+## Safety and scope check
+- [ ] No unrelated changes
+- [ ] No secret, token, or API key exposure
+- [ ] No hidden chain-of-thought or private scratchpad content
+- [ ] No unverified Pi API claims
+- [ ] No npm publishing
+
+## Codex review loop
+- [ ] Posted `@codex review`
+- [ ] Addressed or replied to all valid `codex-connector bot` findings
+- [ ] Requested re-review after fixes
+- [ ] Latest `codex-connector bot` result after latest commit is `+1`
+```
+
+Use `Closes #<issue-number>` only when the PR should close the issue on merge. Use `Refs #<issue-number>` when the PR is related but should not close the issue.
+
+## 11. Local validation rules
+
+Run the strongest available local validation before opening or updating a PR.
+
+If `package.json` exists, run:
+
+```bash
+npm run typecheck --if-present
+npm run lint --if-present
+npm run test --if-present
+npm run build --if-present
+```
+
+If a command does not exist, do not invent it. Mark it as unavailable in the PR body.
+
+For documentation-only changes, run relevant checks such as:
+
+```bash
+git diff --check
+grep -R "Pi Sugagent Kernel\|Pi Subagent Next\|Pi SubAgents Next\|Pi SubAgent Next\|pi-subagents-next" -n . || true
+```
+
+Never claim that tests pass unless you ran them and saw a passing result. If tests cannot run, state the exact reason.
+
+## 12. Opening a PR
+
+Open a PR only after:
+
+1. The issue is assigned to `vnedyalk0v`.
+2. The branch is based on current `main`.
+3. The implementation is limited to the linked issue.
+4. Local validation has passed or unavailable checks are documented.
+5. The PR body includes `Closes #<issue-number>` or a clear reason for using `Refs` instead.
+
+Recommended command shape:
+
+```bash
+gh pr create \
+  --title "M<milestone-number>: <short title> (#<issue-number>)" \
+  --body-file <prepared-pr-body.md> \
+  --base main \
+  --head <branch-name>
+```
+
+After opening:
+
+```bash
+gh pr edit <pr-number> --add-assignee vnedyalk0v
+gh pr comment <pr-number> --body "@codex review"
+```
+
+Move the project item to `In Review` if project access is available.
+
+## 13. Automated AI review loop: `codex-connector bot`
+
+Every PR must go through the automated AI review loop.
+
+The expected review bot is:
+
+```text
+codex-connector bot
+```
+
+Trigger review by posting this exact PR comment:
+
+```text
+@codex review
+```
+
+### Review loop steps
+
+1. Open or update the PR.
+2. Post `@codex review` as a PR comment.
+3. Wait for a new `codex-connector bot` comment or review that was created after the latest commit.
+4. Read every bot comment and review thread.
+5. Validate each finding before changing code.
+6. Fix valid findings with the smallest safe change.
+7. Reply to the bot comment with what changed and the commit SHA.
+8. Mark the conversation resolved if it is genuinely addressed and you have permission.
+9. If you changed code after the bot review, post a new `@codex review` comment.
+10. Repeat until the latest bot result after the latest commit is `+1` and there are no unresolved valid bot findings.
+
+### Waiting and polling
+
+Use the available GitHub tool, GitHub UI, or `gh` commands to inspect comments and reviews.
+
+Useful commands:
+
+```bash
+gh pr view <pr-number> --json number,title,headRefOid,comments,reviews,statusCheckRollup
+```
+
+Do not pretend that a bot review happened. If the bot does not respond after a reasonable polling window or two review requests, leave a PR comment that review was requested but no bot response appeared, then stop and wait for owner direction.
+
+### How to handle bot findings
+
+Classify each finding as one of these:
+
+1. **Valid and in scope** — fix it, test it, reply with evidence, mark resolved.
+2. **Valid but out of scope** — open or propose a follow-up issue, link it, and ask the owner before expanding the PR.
+3. **Duplicate or outdated** — reply with evidence that it is already handled or no longer applies.
+4. **Invalid** — reply with a concise explanation and evidence. Do not change code just to satisfy an invalid finding.
+5. **Ambiguous** — ask for owner direction and mark the PR or issue blocked if needed.
+6. **Unsafe suggestion** — do not apply it. Explain the safety concern and request owner direction.
+
+A bot comment is not valid merely because it exists. Validate against code, tests, issue acceptance criteria, and source docs.
+
+### Re-review rule
+
+Any commit pushed after the latest `codex-connector bot` review invalidates the previous bot result. Request review again by posting:
+
+```text
+@codex review
+```
+
+### Completion rule
+
+The automated review loop is complete only when all of these are true:
+
+1. The latest `codex-connector bot` response was created after the latest commit.
+2. The latest bot response is `+1` or an explicit approval/success signal defined by the owner.
+3. There are no unresolved valid bot findings.
+4. Required checks pass or unavailable checks are documented.
+5. The PR is assigned to `vnedyalk0v`.
+6. The linked issue is assigned to `vnedyalk0v`.
+
+## 14. Human owner review and merge rules
+
+Do not merge PRs unless the owner explicitly instructs you to merge.
+
+After the automated review loop is complete:
+
+1. Ensure the PR is not missing required metadata.
+2. Ensure the PR has a linked issue.
+3. Ensure all valid bot findings are resolved.
+4. Ensure local and CI checks pass or limitations are documented.
+5. Leave a final PR comment summarizing readiness for owner review.
+
+Suggested final comment:
+
+```markdown
+Ready for owner review.
+
+- Linked issue: #<issue-number>
+- Validation: <commands run>
+- Codex review: latest result is +1 after commit <sha>
+- Remaining limitations: <none or list>
+```
+
+## 15. Implementation guardrails
+
+Keep the implementation narrow and staged.
+
+Do:
+
+1. Build small modules with stable interfaces.
+2. Add runtime validation for public inputs.
+3. Add tests for success and failure cases.
+4. Keep safety decisions in code and schemas, not only prompts.
+5. Preserve context isolation by default.
+6. Make result details structured and inspectable.
+7. Keep docs in sync with implemented behavior.
+8. Prefer deterministic behavior over prompt-only conventions.
+
+Do not:
+
+1. Build a full workflow/DAG engine before one-off subagent runs are stable.
+2. Add remote workers before local backends are reliable.
+3. Add worktree write behavior before permissions and run lifecycle are tested.
+4. Add automatic proactive delegation in MVP.
+5. Let child agents silently escalate permissions.
+6. Pass the full parent transcript to a child unless explicitly requested through `inheritContext: full`.
+7. Auto-install unknown packages, extensions, or MCP servers from agent definitions.
+8. Publish to npm before the release milestone explicitly allows it.
+9. Store active runs only in memory while claiming durability.
+10. Copy features from third-party packages without tests and a migration path.
+
+## 16. Safety defaults that must not regress
+
+The default policy must remain deny-by-default unless an issue explicitly changes it and tests prove the behavior.
+
+Required defaults:
+
+```text
+maxDepth = 1
+maxThreads = 4
+nestedSubagents = false
+filesystem = read-only
+network = none
+childExtensions = deny-by-default
+mcpServers = allowlist-only
+projectAgentsRequireConfirmation = true
+```
+
+Any change that relaxes these defaults is security-sensitive and must be labeled or treated as `type:security` and `area:safety`.
+
+## 17. Recommended source layout
+
+Use this layout unless an accepted issue or PR changes it:
 
 ```text
 src/
-├── index.ts                 # Pi extension entrypoint
-├── kernel/                  # runtime-neutral orchestration
-├── backends/                # sdk, subprocess, worktree, mux
-├── registry/                # agent discovery and validation
-├── tools/                   # Pi tool handlers
-├── commands/                # slash commands and UI
-├── permissions/             # policy evaluator
-├── context/                 # context builders and reducers
-├── observability/           # events, logs, run store
-├── schemas/                 # TypeBox/Zod schemas
-└── test/                    # test helpers
+  index.ts
+  extension.ts
+  contracts/
+    agent-definition.ts
+    run-envelope.ts
+    run-state.ts
+    run-event.ts
+    permission-policy.ts
+    execution-backend.ts
+    artifacts.ts
+    model-route.ts
+    index.ts
+  registry/
+    agent-registry.ts
+    run-registry.ts
+  loaders/
+    pi-agent-loader.ts
+    claude-agent-loader.ts
+    codex-agent-loader.ts
+  backends/
+    execution-backend.ts
+    mock-backend.ts
+    sdk-backend.ts
+    subprocess-backend.ts
+  tools/
+    subagent-spawn.ts
+    subagent-status.ts
+    subagent-result.ts
+    subagent-cancel.ts
+  commands/
+  permissions/
+  context/
+  observability/
+
+tests/
+  contracts/
+  registry/
+  loaders/
+  backends/
+  tools/
 ```
 
-Prefer explicit TypeScript types and runtime schemas. Do not rely on prompt-only conventions for safety or routing.
+Do not create directories for future features unless the current issue needs them.
 
-## Coding priorities
+## 18. MVP coding priorities
 
 Build in this order:
 
-1. Static schemas and validation.
-2. Run registry and lifecycle state machine.
-3. SDK backend with fake provider/test harness.
-4. Subprocess backend with timeout and cancellation.
-5. Tool API.
-6. Agent definition loader.
-7. Permissions policy.
-8. Basic `/agents` status command.
-9. Worktree backend.
-10. Compatibility importers.
+1. Repository hygiene and governance.
+2. Static contracts and runtime validation.
+3. Permission policy defaults.
+4. Backend interface.
+5. TypeScript package skeleton.
+6. Pi extension shell.
+7. Agent registry.
+8. `.pi/agents/*.md` loader.
+9. Run registry and lifecycle state machine.
+10. Mock backend.
+11. `subagent_spawn` with mock backend.
+12. `subagent_status`.
+13. `subagent_result`.
+14. `subagent_cancel`.
+15. Safety policy enforcement in the spawn path.
+16. Unit tests and CI.
+17. Subprocess backend research.
+18. Subprocess backend alpha.
 
-## Things not to do in MVP
+Do not implement Claude/Codex importers, worktree backend, workflow engine, FleetView, remote workers, or npm release before the relevant milestone.
 
-- Do not build a full workflow/DAG engine before one-off subagent runs are stable.
-- Do not add remote workers before local backends are reliable.
-- Do not use global mutable singleton state that cannot be reconstructed on session resume.
-- Do not store active runs only in memory if the UI claims they are durable.
-- Do not auto-install unknown packages or MCP servers from agent definitions.
-- Do not copy all features from an existing package without tests and a migration path.
+## 19. Documentation rules
 
-## Research update policy
+Documentation must describe what is true now, not what might exist later.
 
-If you need to rely on a current external fact, check the upstream docs or source code and update `docs/00-source-basis.md`. Mark the source, access date, and whether the fact is verified from official docs, package README, source code, or local inspection.
+Use precise language:
+
+- `Implemented` only for working, tested behavior.
+- `Planned` for accepted but not implemented behavior.
+- `Proposed` for design ideas not yet accepted.
+- `Verified` only for facts backed by official docs, source code, package typings, or local inspection.
+- `Package-author claim` for third-party README/package-page claims not independently audited.
+
+When adding or changing architecture claims, update `docs/00-source-basis.md` if the claim depends on external facts.
+
+## 20. Secrets, privacy, and chain-of-thought
+
+Never commit:
+
+1. API keys, tokens, credentials, cookies, or private URLs.
+2. Raw logs that may contain secrets.
+3. Hidden chain-of-thought or private scratchpad content.
+4. Private prompts from external systems unless explicitly provided for repo documentation.
+5. User-private data unrelated to the issue.
+
+If a secret is accidentally exposed, stop, notify the owner in the PR or issue, and do not continue until directed.
+
+## 21. Handling uncertainty and blockers
+
+Stop and ask for owner direction when:
+
+1. GitHub permissions are missing for assignment, project fields, or review-thread resolution.
+2. The issue acceptance criteria conflict with repository docs.
+3. The bot review conflicts with safety policy or source-backed docs.
+4. The implementation requires an unverified Pi API.
+5. The task would expand beyond the linked issue.
+6. CI fails for reasons unrelated to the PR.
+7. A release, npm publish, or irreversible repo setting change is required.
+
+When blocked, leave a concise issue or PR comment with:
+
+```markdown
+Blocked.
+
+Reason: <specific reason>
+Evidence: <command output, file path, or link>
+Options:
+1. <option>
+2. <option>
+Recommended: <one recommendation>
+```
+
+## 22. Definition of done
+
+A PR is ready for owner review only when:
+
+1. It links the correct issue with `Closes #<issue-number>` or explains why it uses `Refs`.
+2. The linked issue and PR are assigned to `vnedyalk0v`.
+3. The PR title follows the repository convention.
+4. The PR body includes source docs, acceptance criteria evidence, tests, and safety checks.
+5. The change is limited to the issue scope.
+6. Docs are updated for user-visible behavior.
+7. Runtime validation rejects invalid public input where applicable.
+8. Unit tests cover success and failure cases where applicable.
+9. Integration or simulated flow tests are added where the issue calls for behavior changes.
+10. No logs or artifacts include secrets, API keys, or hidden chain-of-thought content.
+11. Local validation and CI pass, or unavailable checks are explicitly documented.
+12. All valid `codex-connector bot` findings are fixed or answered with evidence.
+13. The latest bot result after the latest commit is `+1`.
+14. Project status is `In Review` or the inability to update it is documented.
+
+Do not mark an issue complete before its PR is merged.
