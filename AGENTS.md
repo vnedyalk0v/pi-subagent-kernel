@@ -292,14 +292,20 @@ gh pr create \
   --head <branch-name>
 ```
 
-After opening:
+After opening, mirror the linked issue metadata onto the PR before requesting review:
 
 ```bash
-gh pr edit <pr-number> --add-assignee vnedyalk0v
+gh pr edit <pr-number> \
+  --add-assignee vnedyalk0v \
+  --milestone "<issue milestone>" \
+  --add-label "<comma-separated issue labels>" \
+  --add-project "Pi SubAgent Kernel — Build Board"
 gh pr comment <pr-number> --body "@codex review"
 ```
 
-Move the project item to `In Review` if project access is available.
+Do not rely on the linked issue metadata alone. The PR itself must have the same milestone, labels, assignee, and project link unless the PR intentionally differs and the body explains why.
+
+Move the PR project item to `In Review` if project access is available. If work cannot continue, use `Blocked` and leave a readable blocker comment.
 
 ## 13. Automated AI review loop: `codex-connector bot`
 
@@ -341,6 +347,26 @@ gh pr view <pr-number> --json number,title,headRefOid,comments,reviews,statusChe
 ```
 
 Do not pretend that a bot review happened. If the bot does not respond after a reasonable polling window or two review requests, leave a PR comment that review was requested but no bot response appeared, then stop and wait for owner direction.
+
+For multi-line PR or issue comments, use a heredoc/body file. Do not pass literal `\n` sequences in a quoted shell string; GitHub renders them as ugly text.
+
+```bash
+cat > /tmp/pr-comment.md <<'EOF'
+### Blocked
+
+**Reason**
+<specific reason>
+
+**Evidence**
+- <link or command output>
+
+**Options**
+1. <option>
+2. <option>
+EOF
+
+gh pr comment <pr-number> --body-file /tmp/pr-comment.md
+```
 
 ### How to handle bot findings
 
