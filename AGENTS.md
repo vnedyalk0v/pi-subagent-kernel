@@ -242,6 +242,7 @@ Closes #<issue-number>
 ## Pre-PR verifier gate
 - [ ] Ran a fresh verifier subagent with `ponytail-review` against the final diff before opening the PR
 - [ ] Fixed or documented every valid verifier finding
+- [ ] If `ponytail-review` was unavailable, owner approved the documented fallback before PR open
 
 ## Codex review loop
 - [ ] Initial automatic `codex-connector bot` review completed
@@ -289,8 +290,9 @@ Required verifier behavior:
 5. If the verifier says `Lean already. Ship.`, proceed.
 6. If the verifier reports findings, validate them, fix every valid in-scope finding, rerun local validation, and rerun the verifier if the fix materially changes the diff.
 7. If a finding is invalid or out of scope, document why in the PR body.
+8. If `ponytail-review` is unavailable in the agent harness, stop before opening the PR and ask the owner to install or enable it, or to approve a one-time documented fallback. Do not silently substitute another review.
 
-Do not open the PR until local validation and the verifier gate are complete, unless the owner explicitly allows skipping the verifier.
+Do not open the PR until local validation and the verifier gate are complete, unless the owner explicitly allows skipping or replacing the verifier.
 
 ## 13. Opening a PR
 
@@ -300,7 +302,7 @@ Open a PR only after:
 2. The branch is based on current `main`.
 3. The implementation is limited to the linked issue.
 4. Local validation has passed or unavailable checks are documented.
-5. The pre-PR verifier subagent has passed, or any valid findings are fixed.
+5. The pre-PR verifier subagent has passed, any valid findings are fixed, or an owner-approved fallback is documented.
 6. The PR body includes `Closes #<issue-number>` or a clear reason for using `Refs` instead.
 
 Recommended command shape:
@@ -660,7 +662,7 @@ A PR is ready for owner review only when:
 9. Integration or simulated flow tests are added where the issue calls for behavior changes.
 10. No logs or artifacts include secrets, API keys, or hidden chain-of-thought content.
 11. Local validation and CI pass, or unavailable checks are explicitly documented.
-12. The pre-PR verifier subagent ran with `ponytail-review`, and every valid finding is fixed or documented.
+12. The pre-PR verifier subagent ran with `ponytail-review`, and every valid finding is fixed or documented; or an owner-approved fallback is documented because the skill was unavailable.
 13. All valid `codex-connector bot` findings are fixed or answered with evidence.
 14. The latest bot result after the latest commit is `+1`.
 15. Project status is `In Review` or the inability to update it is documented.
