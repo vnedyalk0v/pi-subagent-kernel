@@ -247,7 +247,7 @@ Closes #<issue-number>
 ## Codex review loop
 - [ ] Initial automatic `codex-connector bot` review completed
 - [ ] Addressed, replied to, and resolved all valid `codex-connector bot` findings
-- [ ] Requested re-review with `@codex review` after fixes, if findings required changes
+- [ ] Waited for automatic Codex review after every pushed fix; did not manually request review unless owner explicitly directed
 - [ ] Latest `codex-connector bot` result after latest commit is `+1`
 ```
 
@@ -327,7 +327,7 @@ gh pr edit <pr-number> \
 
 Do not rely on the linked issue metadata alone. The PR itself must have the same milestone, labels, assignee, and project link unless the PR intentionally differs and the body explains why.
 
-Move the PR project item to `In Review` if project access is available. Copy project fields from the issue when present: `Priority`, `Area`, `Phase`, `Risk`, and `Source Doc`. Then follow the automated review loop below. Do not post an initial `@codex review`: Codex starts automatically when the PR opens. If work cannot continue, use `Blocked` and leave a readable blocker comment.
+Move the PR project item to `In Review` if project access is available. Copy project fields from the issue when present: `Priority`, `Area`, `Phase`, `Risk`, and `Source Doc`. Then follow the automated review loop below. This repository is configured for Codex review on every push, so do not post `@codex review` after opening the PR or after pushing commits unless the owner explicitly directs it. If work cannot continue, use `Blocked` and leave a readable blocker comment.
 
 ## 14. Automated AI review loop: `codex-connector bot`
 
@@ -341,7 +341,7 @@ codex-connector bot
 
 ### Core rule
 
-Opening a PR automatically triggers Codex review. Do **not** post an initial `@codex review` comment.
+This repository is configured for Codex review on every push. Opening a PR and pushing any new commit should trigger Codex automatically. Do **not** post an initial `@codex review` comment, and do **not** post `@codex review` after pushing fixes.
 
 While review is running, the PR or review trigger shows an 👀 (`eyes`) reaction. If you see 👀 and there is no later `codex-connector bot` result for the current head commit, review is in progress. Wait and poll. Do not post another trigger.
 
@@ -375,12 +375,7 @@ gh api graphql -f query='query($owner:String!, $repo:String!, $number:Int!) { re
 7. Fix every valid in-scope finding with the smallest safe change.
 8. Reply to each bot review thread with what changed, why it is out of scope, or why it is invalid, including the commit SHA when code changed.
 9. Immediately resolve each replied-to review thread, equivalent to clicking **Resolve conversation**. If permission is missing, leave a blocker comment and stop.
-10. After fixes are pushed and all addressed threads are resolved, ensure the current head gets reviewed. If an automatic review is already in progress, wait. Otherwise request one re-review by posting exactly:
-
-```text
-@codex review
-```
-
+10. After fixes are pushed and all addressed threads are resolved, wait for the automatic review for the current head; an 👀 reaction means it is already running. If no automatic review appears after a reasonable polling window, leave a blocker comment and ask the owner for direction.
 11. Wait for the new Codex result. If 👀 is present, do not post another trigger.
 12. Repeat until the latest Codex result after the latest head commit is `+1` and no valid bot findings remain unresolved.
 
@@ -401,12 +396,9 @@ A bot comment is not valid merely because it exists. Replying to a bot review th
 
 Any commit pushed after the latest Codex result makes that result stale. The current head commit still needs a Codex result.
 
-Request re-review when either is true:
+Because this repository reviews on every push, pushing a commit is the re-review request. Do not post `@codex review` after pushing fixes. Poll for the auto-triggered review, and treat 👀 as in progress.
 
-1. Codex posted comments, and you fixed/replied/resolved them.
-2. A new commit was pushed after a clean `+1` result.
-
-Before posting `@codex review`, verify there is no in-progress Codex run for the current head commit. If 👀 is present and no later bot result exists, wait.
+Only post `@codex review` if the owner explicitly instructs you to do so or if automatic review is confirmed unavailable after a blocker comment. Before any manual trigger, verify there is no in-progress Codex run for the current head commit.
 
 Never post more than one `@codex review` for the same head commit unless the owner explicitly instructs you to do so.
 

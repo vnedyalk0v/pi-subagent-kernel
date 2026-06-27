@@ -33,5 +33,5 @@ Closes #<issue-number>
 ## Codex review loop
 - [ ] Initial automatic `codex-connector bot` review completed
 - [ ] Addressed, replied to, and resolved all valid `codex-connector bot` findings
-- [ ] Requested re-review with `@codex review` after fixes, if findings required changes
+- [ ] Waited for automatic Codex review after every pushed fix; did not manually request review unless owner explicitly directed
 - [ ] Latest `codex-connector bot` result after latest commit is `+1`
