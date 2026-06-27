@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import {
+  AGENT_DEFINITION_DEFAULTS,
   AgentDefinitionValidationError,
   parseAgentDefinition,
   parseAgentDefinitions,
@@ -57,7 +58,11 @@ describe("AgentDefinition", () => {
         maxRuntimeSec: 900,
         maxTurns: 8,
         maxCostUsd: 0.25,
+        maxInputTokens: 50000,
+        maxOutputTokens: 8000,
+        maxDepth: 1,
       },
+      mcpServers: ["docs"],
       outputSchema: "research_notes_v1",
     });
 
@@ -65,6 +70,10 @@ describe("AgentDefinition", () => {
     assert.equal(definition.runtime, "sdk");
     assert.deepEqual(definition.tools, ["read", "grep", "find", "ls"]);
     assert.equal(definition.maxRuntimeSec, 900);
+    assert.equal(definition.maxInputTokens, 50000);
+    assert.equal(definition.maxOutputTokens, 8000);
+    assert.equal(definition.maxDepth, 1);
+    assert.deepEqual(definition.sandbox.mcpServers, ["docs"]);
     assert.equal(definition.outputSchema, "research_notes_v1");
   });
 
@@ -113,5 +122,16 @@ describe("AgentDefinition", () => {
       () => parseAgentDefinition({ ...validDefinition, tools: ["*"] }),
       /Wildcard allowlists are not allowed/,
     );
+  });
+
+  it("rejects unknown fields", () => {
+    assert.throws(
+      () => parseAgentDefinition({ ...validDefinition, permissions: { filesystems: "read-only" } }),
+      /permissions\.filesystems: Unknown field "filesystems"/,
+    );
+  });
+
+  it("freezes exported default allowlists", () => {
+    assert.throws(() => (AGENT_DEFINITION_DEFAULTS.tools as string[]).push("bash"), TypeError);
   });
 });

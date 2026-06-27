@@ -46,6 +46,9 @@ export interface AgentDefinition {
   maxTurns?: number;
   maxRuntimeSec?: number;
   maxCostUsd?: number;
+  maxInputTokens?: number;
+  maxOutputTokens?: number;
+  maxDepth?: number;
   inheritContext: ContextInheritanceMode;
   nestedSubagents: boolean;
   sandbox: AgentSandbox;
@@ -64,9 +67,9 @@ export type ValidationResult<T> =
 // Safe-by-default values from docs/07-context-safety-permissions.md.
 export const AGENT_DEFINITION_DEFAULTS = Object.freeze({
   runtime: "auto" satisfies RuntimeBackend,
-  tools: [] as string[],
-  disallowedTools: [] as string[],
-  skills: [] as string[],
+  tools: Object.freeze([]) as readonly string[],
+  disallowedTools: Object.freeze([]) as readonly string[],
+  skills: Object.freeze([]) as readonly string[],
   model: "inherit",
   inheritContext: "summary" satisfies ContextInheritanceMode,
   nestedSubagents: false,
@@ -74,10 +77,42 @@ export const AGENT_DEFINITION_DEFAULTS = Object.freeze({
     filesystem: "read-only" satisfies FilesystemPolicy,
     network: "none" satisfies NetworkPolicy,
     shell: "none" satisfies ShellPolicy,
-    mcpServers: [] as string[],
+    mcpServers: Object.freeze([]) as readonly string[],
     childExtensions: "deny-by-default" satisfies ChildExtensionPolicy,
   }),
 });
+
+const TOP_LEVEL_AGENT_KEYS = new Set([
+  "name",
+  "description",
+  "instructions",
+  "body",
+  "runtime",
+  "tools",
+  "disallowedTools",
+  "skills",
+  "model",
+  "thinking",
+  "reasoning",
+  "maxTurns",
+  "maxRuntimeSec",
+  "maxCostUsd",
+  "maxInputTokens",
+  "maxOutputTokens",
+  "maxDepth",
+  "inheritContext",
+  "nestedSubagents",
+  "sandbox",
+  "permissions",
+  "mcpServers",
+  "context",
+  "limits",
+  "outputSchema",
+]);
+
+const LIMIT_KEYS = new Set(["maxTurns", "maxRuntimeSec", "maxCostUsd", "maxInputTokens", "maxOutputTokens", "maxDepth", "nestedSubagents"]);
+const CONTEXT_KEYS = new Set(["inherit"]);
+const SANDBOX_KEYS = new Set(["filesystem", "network", "shell", "mcp", "mcpServers", "childExtensions"]);
 
 export class AgentDefinitionValidationError extends Error {
   readonly issues: ValidationIssue[];
@@ -103,6 +138,8 @@ export function validateAgentDefinition(input: unknown): ValidationResult<AgentD
   if (!isRecord(input)) {
     return fail([{ path: "$", message: "Agent definition must be an object." }]);
   }
+
+  rejectUnknownKeys(input, TOP_LEVEL_AGENT_KEYS, "", issues);
 
   const name = readRequiredString(input, "name", issues);
   if (name && !AGENT_NAME_PATTERN.test(name)) {
@@ -140,6 +177,17 @@ export function validateAgentDefinition(input: unknown): ValidationResult<AgentD
     issues,
   );
   const maxCostUsd = readOptionalNonNegativeNumber(input.maxCostUsd ?? limits?.maxCostUsd, "maxCostUsd", issues);
+  const maxInputTokens = readOptionalPositiveNumber(
+    input.maxInputTokens ?? limits?.maxInputTokens,
+    "maxInputTokens",
+    issues,
+  );
+  const maxOutputTokens = readOptionalPositiveNumber(
+    input.maxOutputTokens ?? limits?.maxOutputTokens,
+    "maxOutputTokens",
+    issues,
+  );
+  const maxDepth = readOptionalPositiveNumber(input.maxDepth ?? limits?.maxDepth, "maxDepth", issues);
   const nestedSubagents = readOptionalBoolean(
     input.nestedSubagents ?? limits?.nestedSubagents,
     "nestedSubagents",
@@ -149,6 +197,12 @@ export function validateAgentDefinition(input: unknown): ValidationResult<AgentD
   const context = isRecord(input.context) ? input.context : undefined;
   if (input.context !== undefined && !context) {
     issues.push({ path: "context", message: "Context must be an object." });
+  }
+  if (limits) {
+    rejectUnknownKeys(limits, LIMIT_KEYS, "limits", issues);
+  }
+  if (context) {
+    rejectUnknownKeys(context, CONTEXT_KEYS, "context", issues);
   }
   const inheritContext = readEnum(
     input.inheritContext ?? context?.inherit,
@@ -181,6 +235,9 @@ export function validateAgentDefinition(input: unknown): ValidationResult<AgentD
       ...(maxTurns !== undefined ? { maxTurns } : {}),
       ...(maxRuntimeSec !== undefined ? { maxRuntimeSec } : {}),
       ...(maxCostUsd !== undefined ? { maxCostUsd } : {}),
+      ...(maxInputTokens !== undefined ? { maxInputTokens } : {}),
+      ...(maxOutputTokens !== undefined ? { maxOutputTokens } : {}),
+      ...(maxDepth !== undefined ? { maxDepth } : {}),
       inheritContext,
       nestedSubagents,
       sandbox,
@@ -242,7 +299,15 @@ function readSandbox(input: Record<string, unknown>, issues: ValidationIssue[]):
     issues.push({ path: "permissions", message: "Permissions must be an object." });
   }
 
+  if (permissions) {
+    rejectUnknownKeys(permissions, SANDBOX_KEYS, "permissions", issues);
+  }
+  if (rawSandbox) {
+    rejectUnknownKeys(rawSandbox, SANDBOX_KEYS, "sandbox", issues);
+  }
   const source = { ...(permissions ?? {}), ...(rawSandbox ?? {}) };
+  const mcpServers =
+    rawSandbox?.mcpServers ?? rawSandbox?.mcp ?? permissions?.mcpServers ?? permissions?.mcp ?? input.mcpServers;
 
   return {
     filesystem: readEnum(
@@ -261,7 +326,7 @@ function readSandbox(input: Record<string, unknown>, issues: ValidationIssue[]):
     ),
     shell: readEnum(source.shell, SHELL_POLICIES, "sandbox.shell", issues, AGENT_DEFINITION_DEFAULTS.sandbox.shell),
     mcpServers: readStringList(
-      source.mcpServers ?? source.mcp,
+      mcpServers,
       "sandbox.mcpServers",
       issues,
       AGENT_DEFINITION_DEFAULTS.sandbox.mcpServers,
@@ -405,6 +470,19 @@ function readOutputSchema(value: unknown, issues: ValidationIssue[]): string | R
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function rejectUnknownKeys(
+  record: Record<string, unknown>,
+  allowed: ReadonlySet<string>,
+  path: string,
+  issues: ValidationIssue[],
+): void {
+  for (const key of Object.keys(record)) {
+    if (!allowed.has(key)) {
+      issues.push({ path: path ? `${path}.${key}` : key, message: `Unknown field "${key}".` });
+    }
+  }
 }
 
 function fail<T>(issues: ValidationIssue[]): ValidationResult<T> {
