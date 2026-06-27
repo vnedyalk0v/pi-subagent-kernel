@@ -305,7 +305,7 @@ gh pr comment <pr-number> --body "@codex review"
 
 Do not rely on the linked issue metadata alone. The PR itself must have the same milestone, labels, assignee, and project link unless the PR intentionally differs and the body explains why.
 
-Move the PR project item to `In Review` if project access is available. If work cannot continue, use `Blocked` and leave a readable blocker comment.
+Move the PR project item to `In Review` if project access is available. Copy project fields from the issue when present: `Priority`, `Area`, `Phase`, `Risk`, and `Source Doc`. If work cannot continue, use `Blocked` and leave a readable blocker comment.
 
 ## 13. Automated AI review loop: `codex-connector bot`
 
