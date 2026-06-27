@@ -135,7 +135,6 @@ const LIMIT_KEYS = new Set([
   "maxOutputTokens",
   "maxDepth",
   "maxThreads",
-  "nestedSubagents",
 ]);
 const CONTEXT_KEYS = new Set(["inherit", "includeFiles", "excludeFiles", "parentSummaryMaxTokens", "attachRecentDiff"]);
 const SANDBOX_KEYS = new Set(["filesystem", "network", "shell", "mcp", "mcpServers", "childExtensions"]);
@@ -206,7 +205,7 @@ export function validateAgentDefinition(input: unknown): ValidationResult<AgentD
   const maxOutputTokens = readLimit(input, limits, "maxOutputTokens", issues, readOptionalPositiveInteger);
   const maxDepth = readLimit(input, limits, "maxDepth", issues, readOptionalPositiveInteger) ?? AGENT_DEFINITION_DEFAULTS.maxDepth;
   const maxThreads = readLimit(input, limits, "maxThreads", issues, readOptionalPositiveInteger) ?? AGENT_DEFINITION_DEFAULTS.maxThreads;
-  const nestedSubagents = readLimit(input, limits, "nestedSubagents", issues, readOptionalBoolean) ?? AGENT_DEFINITION_DEFAULTS.nestedSubagents;
+  const nestedSubagents = readOptionalBoolean(input.nestedSubagents, "nestedSubagents", issues) ?? AGENT_DEFINITION_DEFAULTS.nestedSubagents;
 
   const context = isRecord(input.context) ? input.context : undefined;
   if (input.context !== undefined && !context) {
