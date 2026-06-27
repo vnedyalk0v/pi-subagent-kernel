@@ -189,21 +189,13 @@ export function validateAgentDefinition(input: unknown): ValidationResult<AgentD
     issues.push({ path: "limits", message: "Limits must be an object." });
   }
 
-  const maxTurns = readOptionalPositiveNumber(readField(input, limits, "maxTurns"), "maxTurns", issues);
-  const maxRuntimeSec = readOptionalPositiveNumber(
-    readField(input, limits, "maxRuntimeSec"),
-    "maxRuntimeSec",
-    issues,
-  );
-  const maxCostUsd = readOptionalNonNegativeNumber(readField(input, limits, "maxCostUsd"), "maxCostUsd", issues);
-  const maxInputTokens = readOptionalPositiveNumber(readField(input, limits, "maxInputTokens"), "maxInputTokens", issues);
-  const maxOutputTokens = readOptionalPositiveNumber(readField(input, limits, "maxOutputTokens"), "maxOutputTokens", issues);
-  const maxDepth = readOptionalPositiveNumber(readField(input, limits, "maxDepth"), "maxDepth", issues);
-  const nestedSubagents = readOptionalBoolean(
-    readField(input, limits, "nestedSubagents"),
-    "nestedSubagents",
-    issues,
-  ) ?? AGENT_DEFINITION_DEFAULTS.nestedSubagents;
+  const maxTurns = readLimit(input, limits, "maxTurns", issues, readOptionalPositiveNumber);
+  const maxRuntimeSec = readLimit(input, limits, "maxRuntimeSec", issues, readOptionalPositiveNumber);
+  const maxCostUsd = readLimit(input, limits, "maxCostUsd", issues, readOptionalNonNegativeNumber);
+  const maxInputTokens = readLimit(input, limits, "maxInputTokens", issues, readOptionalPositiveNumber);
+  const maxOutputTokens = readLimit(input, limits, "maxOutputTokens", issues, readOptionalPositiveNumber);
+  const maxDepth = readLimit(input, limits, "maxDepth", issues, readOptionalPositiveNumber);
+  const nestedSubagents = readLimit(input, limits, "nestedSubagents", issues, readOptionalBoolean) ?? AGENT_DEFINITION_DEFAULTS.nestedSubagents;
 
   const context = isRecord(input.context) ? input.context : undefined;
   if (input.context !== undefined && !context) {
@@ -215,7 +207,7 @@ export function validateAgentDefinition(input: unknown): ValidationResult<AgentD
   if (context) {
     rejectUnknownKeys(context, CONTEXT_KEYS, "context", issues);
   }
-  const inheritContextValue = readField(input, context, "inheritContext", "inherit");
+  const inheritContextValue = hasOwn(input, "inheritContext") ? input.inheritContext : context?.inherit;
   const inheritContext = readEnum(
     inheritContextValue,
     CONTEXT_INHERITANCE_MODES,
@@ -229,8 +221,8 @@ export function validateAgentDefinition(input: unknown): ValidationResult<AgentD
       message: "inheritContext full requires spawn-time policy approval and cannot be set by an agent definition.",
     });
   }
-  const includeFiles = readStringList(context?.includeFiles, "context.includeFiles", issues, []);
-  const excludeFiles = readStringList(context?.excludeFiles, "context.excludeFiles", issues, []);
+  const includeFiles = readStringList(context?.includeFiles, "context.includeFiles", issues, [], { allowWildcard: true });
+  const excludeFiles = readStringList(context?.excludeFiles, "context.excludeFiles", issues, [], { allowWildcard: true });
   const parentSummaryMaxTokens = readOptionalPositiveNumber(
     context?.parentSummaryMaxTokens,
     "context.parentSummaryMaxTokens",
@@ -340,8 +332,15 @@ function readSandbox(input: Record<string, unknown>, issues: ValidationIssue[]):
     rejectUnknownKeys(rawSandbox, SANDBOX_KEYS, "sandbox", issues);
   }
   const source = { ...(permissions ?? {}), ...(rawSandbox ?? {}) };
-  const mcpServers =
-    rawSandbox?.mcpServers ?? rawSandbox?.mcp ?? permissions?.mcpServers ?? permissions?.mcp ?? input.mcpServers;
+  const mcpServers = rawSandbox && hasOwn(rawSandbox, "mcpServers")
+    ? rawSandbox.mcpServers
+    : rawSandbox && hasOwn(rawSandbox, "mcp")
+      ? rawSandbox.mcp
+      : permissions && hasOwn(permissions, "mcpServers")
+        ? permissions.mcpServers
+        : permissions && hasOwn(permissions, "mcp")
+          ? permissions.mcp
+          : input.mcpServers;
 
   return {
     filesystem: readEnum(
@@ -359,8 +358,8 @@ function readSandbox(input: Record<string, unknown>, issues: ValidationIssue[]):
       AGENT_DEFINITION_DEFAULTS.sandbox.network,
     ),
     shell: readEnum(source.shell, SHELL_POLICIES, "sandbox.shell", issues, AGENT_DEFINITION_DEFAULTS.sandbox.shell),
-    mcpServers: readStringListOrMap(
-      mcpServers,
+    mcpServers: readStringList(
+      isRecord(mcpServers) ? Object.keys(mcpServers) : mcpServers,
       "sandbox.mcpServers",
       issues,
       AGENT_DEFINITION_DEFAULTS.sandbox.mcpServers,
@@ -405,7 +404,13 @@ function readOptionalString(value: unknown, path: string, issues: ValidationIssu
   return trimmed;
 }
 
-function readStringList(value: unknown, path: string, issues: ValidationIssue[], fallback: readonly string[]): string[] {
+function readStringList(
+  value: unknown,
+  path: string,
+  issues: ValidationIssue[],
+  fallback: readonly string[],
+  options: { allowWildcard?: boolean } = {},
+): string[] {
   if (value === undefined) {
     return [...fallback];
   }
@@ -421,25 +426,13 @@ function readStringList(value: unknown, path: string, issues: ValidationIssue[],
     if (!parsed) {
       return;
     }
-    if (parsed === "*" || parsed.toLowerCase() === "all") {
+    if (!options.allowWildcard && (parsed === "*" || parsed.toLowerCase() === "all")) {
       issues.push({ path: itemPath, message: "Wildcard allowlists are not allowed; list explicit entries." });
       return;
     }
     strings.push(parsed);
   });
   return strings;
-}
-
-function readStringListOrMap(
-  value: unknown,
-  path: string,
-  issues: ValidationIssue[],
-  fallback: readonly string[],
-): string[] {
-  if (isRecord(value)) {
-    return readStringList(Object.keys(value), path, issues, fallback);
-  }
-  return readStringList(value, path, issues, fallback);
 }
 
 function readEnum<const T extends readonly string[]>(
@@ -527,19 +520,15 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function readField(
+function readLimit<T>(
   input: Record<string, unknown>,
-  nested: Record<string, unknown> | undefined,
-  topLevelKey: string,
-  nestedKey = topLevelKey,
-): unknown {
-  if (hasOwn(input, topLevelKey)) {
-    return input[topLevelKey];
-  }
-  if (nested && hasOwn(nested, nestedKey)) {
-    return nested[nestedKey];
-  }
-  return undefined;
+  limits: Record<string, unknown> | undefined,
+  key: string,
+  issues: ValidationIssue[],
+  read: (value: unknown, path: string, issues: ValidationIssue[]) => T | undefined,
+): T | undefined {
+  const nested = limits && hasOwn(limits, key) ? read(limits[key], `limits.${key}`, issues) : undefined;
+  return hasOwn(input, key) ? read(input[key], key, issues) : nested;
 }
 
 function hasOwn(record: Record<string, unknown>, key: string): boolean {

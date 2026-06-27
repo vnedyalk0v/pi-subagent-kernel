@@ -55,7 +55,7 @@ describe("AgentDefinition", () => {
       },
       context: {
         inherit: "summary",
-        includeFiles: ["src/**/*.ts"],
+        includeFiles: ["*", "src/**/*.ts"],
         excludeFiles: ["**/node_modules/**"],
         parentSummaryMaxTokens: 1200,
         attachRecentDiff: true,
@@ -81,7 +81,7 @@ describe("AgentDefinition", () => {
     assert.equal(definition.maxInputTokens, 50000);
     assert.equal(definition.maxOutputTokens, 8000);
     assert.equal(definition.maxDepth, 1);
-    assert.deepEqual(definition.includeFiles, ["src/**/*.ts"]);
+    assert.deepEqual(definition.includeFiles, ["*", "src/**/*.ts"]);
     assert.deepEqual(definition.excludeFiles, ["**/node_modules/**"]);
     assert.equal(definition.parentSummaryMaxTokens, 1200);
     assert.equal(definition.attachRecentDiff, true);
@@ -154,6 +154,20 @@ describe("AgentDefinition", () => {
 
   it("rejects explicit null limits", () => {
     assert.throws(() => parseAgentDefinition({ ...validDefinition, maxTurns: null }), /maxTurns must be greater than 0/);
+  });
+
+  it("rejects explicit null nested limit aliases", () => {
+    assert.throws(
+      () => parseAgentDefinition({ ...validDefinition, maxTurns: 3, limits: { maxTurns: null } }),
+      /limits\.maxTurns must be greater than 0/,
+    );
+  });
+
+  it("rejects explicit null nested mcp allowlists", () => {
+    assert.throws(
+      () => parseAgentDefinition({ ...validDefinition, permissions: { mcpServers: null } }),
+      /sandbox\.mcpServers must be an array of strings/,
+    );
   });
 
   it("freezes exported default allowlists", () => {
