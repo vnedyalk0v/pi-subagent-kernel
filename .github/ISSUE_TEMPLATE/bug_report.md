@@ -3,7 +3,7 @@ name: Bug report
 about: Report incorrect behavior
 title: "Fix "
 labels: "type:bug"
-assignees: ""
+assignees: "vnedyalk0v"
 ---
 
 ## Summary

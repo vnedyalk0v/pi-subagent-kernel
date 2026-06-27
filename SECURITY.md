@@ -19,4 +19,4 @@ Please include:
 
 ## Scope
 
-Pi SubAgent Kernel targets a Pi extension package. It enforces agent-harness permissions, but it is not a hardened OS sandbox.
+Pi SubAgent Kernel targets a Pi extension package. It is planned to enforce agent-harness permissions, but it is not a hardened OS sandbox.

@@ -3,7 +3,7 @@ name: Feature request
 about: Propose a scoped capability
 title: "Implement "
 labels: "type:feature"
-assignees: ""
+assignees: "vnedyalk0v"
 ---
 
 ## Goal
