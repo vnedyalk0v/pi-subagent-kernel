@@ -27,6 +27,8 @@ export type ChildExtensionPolicy = (typeof CHILD_EXTENSION_POLICIES)[number];
 export const RESULT_MODES = ["summary", "json", "patch", "artifact", "mixed"] as const;
 export type ResultMode = (typeof RESULT_MODES)[number];
 
+export const RESERVED_AGENT_NAMES = new Set(["subagent_spawn", "subagent_status", "subagent_result", "subagent_cancel"]);
+
 export interface AgentSandbox {
   filesystem: FilesystemPolicy;
   network: NetworkPolicy;
@@ -82,6 +84,7 @@ export const AGENT_DEFINITION_DEFAULTS = Object.freeze({
   model: "inherit",
   inheritContext: "summary" satisfies ContextInheritanceMode,
   nestedSubagents: false,
+  maxDepth: 1,
   sandbox: Object.freeze({
     filesystem: "read-only" satisfies FilesystemPolicy,
     network: "none" satisfies NetworkPolicy,
@@ -167,6 +170,9 @@ export function validateAgentDefinition(input: unknown): ValidationResult<AgentD
       message: "Name must match /^[a-z][a-z0-9_-]{1,63}$/.",
     });
   }
+  if (name && RESERVED_AGENT_NAMES.has(name.toLowerCase())) {
+    issues.push({ path: "name", message: `Name "${name}" is reserved for a subagent tool.` });
+  }
 
   const description = readRequiredString(input, "description", issues);
   const instructions = readRequiredString(input, "instructions", issues, input.body);
@@ -189,12 +195,12 @@ export function validateAgentDefinition(input: unknown): ValidationResult<AgentD
     issues.push({ path: "limits", message: "Limits must be an object." });
   }
 
-  const maxTurns = readLimit(input, limits, "maxTurns", issues, readOptionalPositiveNumber);
-  const maxRuntimeSec = readLimit(input, limits, "maxRuntimeSec", issues, readOptionalPositiveNumber);
+  const maxTurns = readLimit(input, limits, "maxTurns", issues, readOptionalPositiveInteger);
+  const maxRuntimeSec = readLimit(input, limits, "maxRuntimeSec", issues, readOptionalPositiveInteger);
   const maxCostUsd = readLimit(input, limits, "maxCostUsd", issues, readOptionalNonNegativeNumber);
-  const maxInputTokens = readLimit(input, limits, "maxInputTokens", issues, readOptionalPositiveNumber);
-  const maxOutputTokens = readLimit(input, limits, "maxOutputTokens", issues, readOptionalPositiveNumber);
-  const maxDepth = readLimit(input, limits, "maxDepth", issues, readOptionalPositiveNumber);
+  const maxInputTokens = readLimit(input, limits, "maxInputTokens", issues, readOptionalPositiveInteger);
+  const maxOutputTokens = readLimit(input, limits, "maxOutputTokens", issues, readOptionalPositiveInteger);
+  const maxDepth = readLimit(input, limits, "maxDepth", issues, readOptionalPositiveInteger) ?? AGENT_DEFINITION_DEFAULTS.maxDepth;
   const nestedSubagents = readLimit(input, limits, "nestedSubagents", issues, readOptionalBoolean) ?? AGENT_DEFINITION_DEFAULTS.nestedSubagents;
 
   const context = isRecord(input.context) ? input.context : undefined;
@@ -207,23 +213,21 @@ export function validateAgentDefinition(input: unknown): ValidationResult<AgentD
   if (context) {
     rejectUnknownKeys(context, CONTEXT_KEYS, "context", issues);
   }
-  const inheritContextValue = hasOwn(input, "inheritContext") ? input.inheritContext : context?.inherit;
-  const inheritContext = readEnum(
-    inheritContextValue,
-    CONTEXT_INHERITANCE_MODES,
-    "inheritContext",
-    issues,
-    AGENT_DEFINITION_DEFAULTS.inheritContext,
-  );
-  if (inheritContext === "full") {
+  const nestedInheritContext = context && hasOwn(context, "inherit")
+    ? readOptionalEnum(context.inherit, CONTEXT_INHERITANCE_MODES, "context.inherit", issues)
+    : undefined;
+  const inheritContext = hasOwn(input, "inheritContext")
+    ? readEnum(input.inheritContext, CONTEXT_INHERITANCE_MODES, "inheritContext", issues, AGENT_DEFINITION_DEFAULTS.inheritContext)
+    : nestedInheritContext ?? AGENT_DEFINITION_DEFAULTS.inheritContext;
+  if (inheritContext === "full" || nestedInheritContext === "full") {
     issues.push({
-      path: hasOwn(input, "inheritContext") ? "inheritContext" : "context.inherit",
+      path: inheritContext === "full" && hasOwn(input, "inheritContext") ? "inheritContext" : "context.inherit",
       message: "inheritContext full requires spawn-time policy approval and cannot be set by an agent definition.",
     });
   }
   const includeFiles = readStringList(context?.includeFiles, "context.includeFiles", issues, [], { allowWildcard: true });
   const excludeFiles = readStringList(context?.excludeFiles, "context.excludeFiles", issues, [], { allowWildcard: true });
-  const parentSummaryMaxTokens = readOptionalPositiveNumber(
+  const parentSummaryMaxTokens = readOptionalPositiveInteger(
     context?.parentSummaryMaxTokens,
     "context.parentSummaryMaxTokens",
     issues,
@@ -257,7 +261,7 @@ export function validateAgentDefinition(input: unknown): ValidationResult<AgentD
       ...(maxCostUsd !== undefined ? { maxCostUsd } : {}),
       ...(maxInputTokens !== undefined ? { maxInputTokens } : {}),
       ...(maxOutputTokens !== undefined ? { maxOutputTokens } : {}),
-      ...(maxDepth !== undefined ? { maxDepth } : {}),
+      maxDepth,
       inheritContext,
       ...(context && hasOwn(context, "includeFiles") ? { includeFiles } : {}),
       ...(context && hasOwn(context, "excludeFiles") ? { excludeFiles } : {}),
@@ -331,47 +335,64 @@ function readSandbox(input: Record<string, unknown>, issues: ValidationIssue[]):
   if (rawSandbox) {
     rejectUnknownKeys(rawSandbox, SANDBOX_KEYS, "sandbox", issues);
   }
-  const source = { ...(permissions ?? {}), ...(rawSandbox ?? {}) };
-  const mcpServers = rawSandbox && hasOwn(rawSandbox, "mcpServers")
-    ? rawSandbox.mcpServers
-    : rawSandbox && hasOwn(rawSandbox, "mcp")
-      ? rawSandbox.mcp
-      : permissions && hasOwn(permissions, "mcpServers")
-        ? permissions.mcpServers
-        : permissions && hasOwn(permissions, "mcp")
-          ? permissions.mcp
-          : input.mcpServers;
+
+  const topLevelMcpServers = readMcpServers(input, "mcpServers", "mcpServers", issues);
+  const permissionSandbox = readSandboxLayer(permissions, "permissions", issues);
+  const agentSandbox = readSandboxLayer(rawSandbox, "sandbox", issues);
 
   return {
-    filesystem: readEnum(
-      source.filesystem,
-      FILESYSTEM_POLICIES,
-      "sandbox.filesystem",
-      issues,
-      AGENT_DEFINITION_DEFAULTS.sandbox.filesystem,
-    ),
-    network: readEnum(
-      source.network,
-      NETWORK_POLICIES,
-      "sandbox.network",
-      issues,
-      AGENT_DEFINITION_DEFAULTS.sandbox.network,
-    ),
-    shell: readEnum(source.shell, SHELL_POLICIES, "sandbox.shell", issues, AGENT_DEFINITION_DEFAULTS.sandbox.shell),
-    mcpServers: readStringList(
-      isRecord(mcpServers) ? Object.keys(mcpServers) : mcpServers,
-      "sandbox.mcpServers",
-      issues,
-      AGENT_DEFINITION_DEFAULTS.sandbox.mcpServers,
-    ),
-    childExtensions: readEnum(
-      source.childExtensions,
-      CHILD_EXTENSION_POLICIES,
-      "sandbox.childExtensions",
-      issues,
-      AGENT_DEFINITION_DEFAULTS.sandbox.childExtensions,
-    ),
+    filesystem: agentSandbox.filesystem ?? permissionSandbox.filesystem ?? AGENT_DEFINITION_DEFAULTS.sandbox.filesystem,
+    network: agentSandbox.network ?? permissionSandbox.network ?? AGENT_DEFINITION_DEFAULTS.sandbox.network,
+    shell: agentSandbox.shell ?? permissionSandbox.shell ?? AGENT_DEFINITION_DEFAULTS.sandbox.shell,
+    mcpServers: agentSandbox.mcpServers ?? permissionSandbox.mcpServers ?? topLevelMcpServers,
+    childExtensions:
+      agentSandbox.childExtensions ?? permissionSandbox.childExtensions ?? AGENT_DEFINITION_DEFAULTS.sandbox.childExtensions,
   };
+}
+
+function readSandboxLayer(
+  input: Record<string, unknown> | undefined,
+  path: string,
+  issues: ValidationIssue[],
+): Partial<AgentSandbox> {
+  if (!input) {
+    return {};
+  }
+
+  const explicitMcpServers = hasOwn(input, "mcpServers")
+    ? readMcpServers(input, "mcpServers", `${path}.mcpServers`, issues)
+    : undefined;
+  const mcpAlias = hasOwn(input, "mcp") ? readMcpServers(input, "mcp", `${path}.mcp`, issues) : undefined;
+  const mcpServers = explicitMcpServers ?? mcpAlias;
+
+  return {
+    ...(hasOwn(input, "filesystem")
+      ? { filesystem: readOptionalEnum(input.filesystem, FILESYSTEM_POLICIES, `${path}.filesystem`, issues) }
+      : {}),
+    ...(hasOwn(input, "network") ? { network: readOptionalEnum(input.network, NETWORK_POLICIES, `${path}.network`, issues) } : {}),
+    ...(hasOwn(input, "shell") ? { shell: readOptionalEnum(input.shell, SHELL_POLICIES, `${path}.shell`, issues) } : {}),
+    ...(mcpServers !== undefined ? { mcpServers } : {}),
+    ...(hasOwn(input, "childExtensions")
+      ? {
+          childExtensions: readOptionalEnum(
+            input.childExtensions,
+            CHILD_EXTENSION_POLICIES,
+            `${path}.childExtensions`,
+            issues,
+          ),
+        }
+      : {}),
+  };
+}
+
+function readMcpServers(
+  input: Record<string, unknown>,
+  key: string,
+  path: string,
+  issues: ValidationIssue[],
+): string[] {
+  const value = hasOwn(input, key) ? input[key] : undefined;
+  return readStringList(isRecord(value) ? Object.keys(value) : value, path, issues, AGENT_DEFINITION_DEFAULTS.sandbox.mcpServers);
 }
 
 function readRequiredString(
@@ -461,8 +482,8 @@ function readOptionalEnum<const T extends readonly string[]>(
   return value;
 }
 
-function readOptionalPositiveNumber(value: unknown, path: string, issues: ValidationIssue[]): number | undefined {
-  return readNumber(value, path, issues, (number) => number > 0, "must be greater than 0");
+function readOptionalPositiveInteger(value: unknown, path: string, issues: ValidationIssue[]): number | undefined {
+  return readNumber(value, path, issues, (number) => Number.isInteger(number) && number > 0, "must be a positive integer");
 }
 
 function readOptionalNonNegativeNumber(value: unknown, path: string, issues: ValidationIssue[]): number | undefined {

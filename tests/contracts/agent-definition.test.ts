@@ -30,6 +30,7 @@ describe("AgentDefinition", () => {
     assert.equal(definition.model, "inherit");
     assert.equal(definition.inheritContext, "summary");
     assert.equal(definition.nestedSubagents, false);
+    assert.equal(definition.maxDepth, 1);
     assert.deepEqual(definition.sandbox, {
       filesystem: "read-only",
       network: "none",
@@ -120,6 +121,10 @@ describe("AgentDefinition", () => {
     );
   });
 
+  it("rejects reserved tool names", () => {
+    assert.throws(() => parseAgentDefinition({ ...validDefinition, name: "subagent_spawn" }), /reserved for a subagent tool/);
+  });
+
   it("rejects duplicate names", () => {
     assert.throws(
       () =>
@@ -152,21 +157,44 @@ describe("AgentDefinition", () => {
     );
   });
 
+  it("rejects shadowed full context aliases", () => {
+    assert.throws(
+      () => parseAgentDefinition({ ...validDefinition, inheritContext: "summary", context: { inherit: "full" } }),
+      /inheritContext full requires spawn-time policy approval/,
+    );
+  });
+
+  it("rejects fractional count limits", () => {
+    assert.throws(() => parseAgentDefinition({ ...validDefinition, maxTurns: 0.5 }), /maxTurns must be a positive integer/);
+  });
+
   it("rejects explicit null limits", () => {
-    assert.throws(() => parseAgentDefinition({ ...validDefinition, maxTurns: null }), /maxTurns must be greater than 0/);
+    assert.throws(() => parseAgentDefinition({ ...validDefinition, maxTurns: null }), /maxTurns must be a positive integer/);
   });
 
   it("rejects explicit null nested limit aliases", () => {
     assert.throws(
       () => parseAgentDefinition({ ...validDefinition, maxTurns: 3, limits: { maxTurns: null } }),
-      /limits\.maxTurns must be greater than 0/,
+      /limits\.maxTurns must be a positive integer/,
     );
   });
 
   it("rejects explicit null nested mcp allowlists", () => {
     assert.throws(
       () => parseAgentDefinition({ ...validDefinition, permissions: { mcpServers: null } }),
-      /sandbox\.mcpServers must be an array of strings/,
+      /permissions\.mcpServers must be an array of strings/,
+    );
+  });
+
+  it("rejects malformed shadowed permissions", () => {
+    assert.throws(
+      () =>
+        parseAgentDefinition({
+          ...validDefinition,
+          permissions: { filesystem: null },
+          sandbox: { filesystem: "read-only" },
+        }),
+      /permissions\.filesystem must be one of/,
     );
   });
 
