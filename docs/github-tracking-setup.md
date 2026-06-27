@@ -13,11 +13,13 @@ A naming-hygiene issue was created for canonical display/package naming. A setup
 - Created `Priority`, `Area`, `Phase`, `Risk`, and `Source Doc` fields.
 - All initial issues were added to the project with `Status = Backlog`; Priority, Area, Phase, Risk, and Source Doc were populated from labels/source docs.
 ## Project views
-GitHub CLI in this environment exposes project/field/item commands but no project view creation command. The project README documents the recommended views, but the saved views still need to be created manually:
-1. **Backlog Table** — table layout, all open issues, grouped or sorted by Priority and Milestone.
-2. **MVP Board** — board layout, filter `phase:mvp`, grouped by Status.
-3. **Roadmap** — roadmap/table view grouped by Milestone.
-4. **Safety & Quality** — table layout, filter `area:safety OR type:test OR area:ci OR type:security`.
+Saved views verified by name/layout on **2026-06-27**:
+1. **Table view** — table layout for backlog/triage.
+2. **MVP Board** — board layout for MVP work.
+3. **Roadmap** — roadmap layout grouped by milestone.
+4. **Safety & Quality** — table layout for safety, tests, CI, and security work.
+
+The available CLI/GraphQL checks confirmed view names and layouts, not every UI-only filter/grouping setting.
 ## Milestones created/reused
 - **M0 — Repo Hygiene & Governance** — created/reused. Repository setup, naming consistency, contribution docs, issue templates, CI skeleton, and project tracking.
 - **M1 — Contracts & Schemas** — created/reused. Core TypeScript contracts and schemas for AgentDefinition, RunEnvelope, RunState, RunEvent, PermissionPolicy, ExecutionBackend, ToolAllowlist, ModelRoute, and ArtifactRef.
@@ -98,8 +100,6 @@ GitHub CLI in this environment exposes project/field/item commands but no projec
 | 31 | [#31 Design worktree backend](https://github.com/vnedyalk0v/pi-subagent-kernel/issues/31) | Post-MVP — Compat, Worktree, Workflows & UI | `priority:p3`, `type:research`, `area:backend`, `area:safety`, `phase:post-mvp` | `docs/06-runtime-backends.md`, `docs/07-context-safety-permissions.md`, `docs/13-risk-register.md`, `docs/ADR.md` |
 | 32 | [#32 Design /agents command and observability UI](https://github.com/vnedyalk0v/pi-subagent-kernel/issues/32) | Post-MVP — Compat, Worktree, Workflows & UI | `priority:p3`, `type:research`, `area:ui`, `phase:post-mvp` | `docs/08-observability-ux.md`, `docs/03-architecture.md`, `docs/10-implementation-plan.md` |
 ## Manual follow-up steps
-1. Open <https://github.com/users/vnedyalk0v/projects/9>.
-2. Create the four saved project views listed above.
-3. Keep issue #3 open until this tracking file is committed and the project views are confirmed.
+None for issue #3. The tracking file is committed, the setup summary comment exists, and the saved project views were verified by name/layout.
 
 No npm publishing or product-code implementation was performed during this setup.
