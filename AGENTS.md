@@ -300,12 +300,11 @@ gh pr edit <pr-number> \
   --milestone "<issue milestone>" \
   --add-label "<comma-separated issue labels>" \
   --add-project "Pi SubAgent Kernel — Build Board"
-gh pr comment <pr-number> --body "@codex review"
 ```
 
 Do not rely on the linked issue metadata alone. The PR itself must have the same milestone, labels, assignee, and project link unless the PR intentionally differs and the body explains why.
 
-Move the PR project item to `In Review` if project access is available. Copy project fields from the issue when present: `Priority`, `Area`, `Phase`, `Risk`, and `Source Doc`. If work cannot continue, use `Blocked` and leave a readable blocker comment.
+Move the PR project item to `In Review` if project access is available. Copy project fields from the issue when present: `Priority`, `Area`, `Phase`, `Risk`, and `Source Doc`. Then follow the automated review loop below; do not post `@codex review` until you have checked that no review is already in progress. If work cannot continue, use `Blocked` and leave a readable blocker comment.
 
 ## 13. Automated AI review loop: `codex-connector bot`
 
@@ -317,7 +316,7 @@ The expected review bot is:
 codex-connector bot
 ```
 
-Before triggering review, inspect existing PR comments and reviews. If an `@codex review` comment has an 👀 (`eyes`) reaction and no later `codex-connector bot` result, review is already in progress; do not post another trigger. Wait and poll instead.
+Before every review trigger, inspect existing PR comments and reviews. If an `@codex review` comment has an 👀 (`eyes`) reaction and no later `codex-connector bot` result for the current head commit, review is already in progress; do not post another trigger. Wait and poll instead.
 
 Useful check:
 
@@ -336,16 +335,17 @@ Trigger review only when no review is in progress by posting this exact PR comme
 ### Review loop steps
 
 1. Open or update the PR.
-2. Check for an existing in-progress Codex review (`@codex review` comment with 👀 and no later bot result).
-3. If no review is in progress, post `@codex review` as a PR comment.
-4. Wait for a new `codex-connector bot` comment or review that was created after the latest commit.
-5. Read every bot comment and review thread.
-6. Validate each finding before changing code.
-7. Fix valid findings with the smallest safe change.
-8. Reply to the bot comment with what changed and the commit SHA.
-9. Mark the conversation resolved if it is genuinely addressed and you have permission.
-10. If you changed code after the bot review, check for an in-progress review before posting a new `@codex review` comment.
-11. Repeat until the latest bot result after the latest commit is `+1` and there are no unresolved valid bot findings.
+2. Check for an existing in-progress Codex review (`@codex review` comment with 👀 and no later bot result for the current head commit).
+3. If review is in progress, wait and poll; do not post another `@codex review`.
+4. If no review is in progress, post exactly one `@codex review` comment.
+5. Wait for a new `codex-connector bot` comment or review that was created after the latest commit.
+6. Read every bot comment and review thread.
+7. Validate each finding before changing code.
+8. Fix valid findings with the smallest safe change.
+9. Reply to each bot review thread with what changed, why it is out of scope, or why it is invalid, including the commit SHA when code changed.
+10. Immediately resolve each replied-to review thread, equivalent to clicking **Resolve conversation**. If permission is missing, leave a blocker comment and stop.
+11. If you changed code after the bot review, return to step 2 before requesting another review.
+12. Repeat until the latest bot result after the latest commit is `+1` and there are no unresolved valid bot findings.
 
 ### Waiting and polling
 
@@ -383,18 +383,18 @@ gh pr comment <pr-number> --body-file /tmp/pr-comment.md
 
 Classify each finding as one of these:
 
-1. **Valid and in scope** — fix it, test it, reply with evidence, mark resolved.
-2. **Valid but out of scope** — open or propose a follow-up issue, link it, and ask the owner before expanding the PR.
-3. **Duplicate or outdated** — reply with evidence that it is already handled or no longer applies.
-4. **Invalid** — reply with a concise explanation and evidence. Do not change code just to satisfy an invalid finding.
-5. **Ambiguous** — ask for owner direction and mark the PR or issue blocked if needed.
-6. **Unsafe suggestion** — do not apply it. Explain the safety concern and request owner direction.
+1. **Valid and in scope** — fix it, test it, reply with evidence, then resolve the review thread.
+2. **Valid but out of scope** — reply with evidence, open or propose a follow-up issue, then resolve the review thread unless owner input is required.
+3. **Duplicate or outdated** — reply with evidence that it is already handled or no longer applies, then resolve the review thread.
+4. **Invalid** — reply with a concise explanation and evidence, then resolve the review thread. Do not change code just to satisfy an invalid finding.
+5. **Ambiguous** — ask for owner direction and mark the PR or issue blocked if needed. Resolve only after the ambiguity is answered.
+6. **Unsafe suggestion** — do not apply it. Explain the safety concern, request owner direction, and leave the thread unresolved until directed.
 
-A bot comment is not valid merely because it exists. Validate against code, tests, issue acceptance criteria, and source docs.
+A bot comment is not valid merely because it exists. Validate against code, tests, issue acceptance criteria, and source docs. Replying to a bot review thread is not complete until the thread is resolved or explicitly left unresolved because it is blocked on owner direction.
 
 ### Re-review rule
 
-Any commit pushed after the latest `codex-connector bot` review invalidates the previous bot result. Request review again by posting:
+Any commit pushed after the latest `codex-connector bot` review invalidates the previous bot result. Before requesting re-review, inspect comments and reviews for an in-progress Codex run. If an `@codex review` comment has 👀 and no later bot result for the current head commit, wait. Only when no review is in progress, request review by posting exactly one:
 
 ```text
 @codex review
@@ -594,17 +594,23 @@ Stop and ask for owner direction when:
 6. CI fails for reasons unrelated to the PR.
 7. A release, npm publish, or irreversible repo setting change is required.
 
-When blocked, leave a concise issue or PR comment with:
+When blocked, leave a concise issue or PR comment from a body file with:
 
 ```markdown
-Blocked.
+### Blocked
 
-Reason: <specific reason>
-Evidence: <command output, file path, or link>
-Options:
+**Reason**
+<specific reason>
+
+**Evidence**
+- <command output, file path, or link>
+
+**Options**
 1. <option>
 2. <option>
-Recommended: <one recommendation>
+
+**Recommended**
+<one recommendation>
 ```
 
 ## 22. Definition of done
