@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 
 import {
   AGENT_DEFINITION_DEFAULTS,
+  FILESYSTEM_POLICIES,
   AgentDefinitionValidationError,
   parseAgentDefinition,
   parseAgentDefinitions,
@@ -31,6 +32,7 @@ describe("AgentDefinition", () => {
     assert.equal(definition.inheritContext, "summary");
     assert.equal(definition.nestedSubagents, false);
     assert.equal(definition.maxDepth, 1);
+    assert.equal(definition.maxThreads, 4);
     assert.deepEqual(definition.sandbox, {
       filesystem: "read-only",
       network: "none",
@@ -68,6 +70,7 @@ describe("AgentDefinition", () => {
         maxInputTokens: 50000,
         maxOutputTokens: 8000,
         maxDepth: 1,
+        maxThreads: 2,
       },
       mcpServers: { docs: {} },
       outputSchema: "research_notes_v1",
@@ -82,6 +85,7 @@ describe("AgentDefinition", () => {
     assert.equal(definition.maxInputTokens, 50000);
     assert.equal(definition.maxOutputTokens, 8000);
     assert.equal(definition.maxDepth, 1);
+    assert.equal(definition.maxThreads, 2);
     assert.deepEqual(definition.includeFiles, ["*", "src/**/*.ts"]);
     assert.deepEqual(definition.excludeFiles, ["**/node_modules/**"]);
     assert.equal(definition.parentSummaryMaxTokens, 1200);
@@ -143,6 +147,13 @@ describe("AgentDefinition", () => {
     );
   });
 
+  it("rejects unresolved mcp wildcards", () => {
+    assert.throws(
+      () => parseAgentDefinition({ ...validDefinition, mcpServers: ["mcp:*"] }),
+      /Wildcard allowlists are not allowed/,
+    );
+  });
+
   it("rejects unknown fields", () => {
     assert.throws(
       () => parseAgentDefinition({ ...validDefinition, permissions: { filesystems: "read-only" } }),
@@ -200,5 +211,9 @@ describe("AgentDefinition", () => {
 
   it("freezes exported default allowlists", () => {
     assert.throws(() => (AGENT_DEFINITION_DEFAULTS.tools as string[]).push("bash"), TypeError);
+  });
+
+  it("freezes exported policy enums", () => {
+    assert.throws(() => (FILESYSTEM_POLICIES as unknown as string[]).push("allow-everything"), TypeError);
   });
 });

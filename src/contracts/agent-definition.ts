@@ -1,30 +1,30 @@
 export const AGENT_NAME_PATTERN = /^[a-z][a-z0-9_-]{1,63}$/;
 
-export const RUNTIME_BACKENDS = ["sdk", "subprocess", "worktree", "mux", "remote", "auto"] as const;
+export const RUNTIME_BACKENDS = Object.freeze(["sdk", "subprocess", "worktree", "mux", "remote", "auto"] as const);
 export type RuntimeBackend = (typeof RUNTIME_BACKENDS)[number];
 
-export const CONTEXT_INHERITANCE_MODES = ["none", "summary", "fork", "full"] as const;
+export const CONTEXT_INHERITANCE_MODES = Object.freeze(["none", "summary", "fork", "full"] as const);
 export type ContextInheritanceMode = (typeof CONTEXT_INHERITANCE_MODES)[number];
 
-export const FILESYSTEM_POLICIES = [
+export const FILESYSTEM_POLICIES = Object.freeze([
   "none",
   "read-only",
   "workspace-write",
   "worktree-write",
   "unrestricted",
-] as const;
+] as const);
 export type FilesystemPolicy = (typeof FILESYSTEM_POLICIES)[number];
 
-export const NETWORK_POLICIES = ["none", "docs-only", "ask", "allow"] as const;
+export const NETWORK_POLICIES = Object.freeze(["none", "docs-only", "ask", "allow"] as const);
 export type NetworkPolicy = (typeof NETWORK_POLICIES)[number];
 
-export const SHELL_POLICIES = ["none", "test-only", "ask", "allow"] as const;
+export const SHELL_POLICIES = Object.freeze(["none", "test-only", "ask", "allow"] as const);
 export type ShellPolicy = (typeof SHELL_POLICIES)[number];
 
-export const CHILD_EXTENSION_POLICIES = ["deny-by-default", "allow"] as const;
+export const CHILD_EXTENSION_POLICIES = Object.freeze(["deny-by-default", "allow"] as const);
 export type ChildExtensionPolicy = (typeof CHILD_EXTENSION_POLICIES)[number];
 
-export const RESULT_MODES = ["summary", "json", "patch", "artifact", "mixed"] as const;
+export const RESULT_MODES = Object.freeze(["summary", "json", "patch", "artifact", "mixed"] as const);
 export type ResultMode = (typeof RESULT_MODES)[number];
 
 export const RESERVED_AGENT_NAMES = new Set(["subagent_spawn", "subagent_status", "subagent_result", "subagent_cancel"]);
@@ -54,6 +54,7 @@ export interface AgentDefinition {
   maxInputTokens?: number;
   maxOutputTokens?: number;
   maxDepth?: number;
+  maxThreads?: number;
   inheritContext: ContextInheritanceMode;
   includeFiles?: string[];
   excludeFiles?: string[];
@@ -85,6 +86,7 @@ export const AGENT_DEFINITION_DEFAULTS = Object.freeze({
   inheritContext: "summary" satisfies ContextInheritanceMode,
   nestedSubagents: false,
   maxDepth: 1,
+  maxThreads: 4,
   sandbox: Object.freeze({
     filesystem: "read-only" satisfies FilesystemPolicy,
     network: "none" satisfies NetworkPolicy,
@@ -112,6 +114,7 @@ const TOP_LEVEL_AGENT_KEYS = new Set([
   "maxInputTokens",
   "maxOutputTokens",
   "maxDepth",
+  "maxThreads",
   "inheritContext",
   "nestedSubagents",
   "sandbox",
@@ -131,6 +134,7 @@ const LIMIT_KEYS = new Set([
   "maxInputTokens",
   "maxOutputTokens",
   "maxDepth",
+  "maxThreads",
   "nestedSubagents",
 ]);
 const CONTEXT_KEYS = new Set(["inherit", "includeFiles", "excludeFiles", "parentSummaryMaxTokens", "attachRecentDiff"]);
@@ -201,6 +205,7 @@ export function validateAgentDefinition(input: unknown): ValidationResult<AgentD
   const maxInputTokens = readLimit(input, limits, "maxInputTokens", issues, readOptionalPositiveInteger);
   const maxOutputTokens = readLimit(input, limits, "maxOutputTokens", issues, readOptionalPositiveInteger);
   const maxDepth = readLimit(input, limits, "maxDepth", issues, readOptionalPositiveInteger) ?? AGENT_DEFINITION_DEFAULTS.maxDepth;
+  const maxThreads = readLimit(input, limits, "maxThreads", issues, readOptionalPositiveInteger) ?? AGENT_DEFINITION_DEFAULTS.maxThreads;
   const nestedSubagents = readLimit(input, limits, "nestedSubagents", issues, readOptionalBoolean) ?? AGENT_DEFINITION_DEFAULTS.nestedSubagents;
 
   const context = isRecord(input.context) ? input.context : undefined;
@@ -262,6 +267,7 @@ export function validateAgentDefinition(input: unknown): ValidationResult<AgentD
       ...(maxInputTokens !== undefined ? { maxInputTokens } : {}),
       ...(maxOutputTokens !== undefined ? { maxOutputTokens } : {}),
       maxDepth,
+      maxThreads,
       inheritContext,
       ...(context && hasOwn(context, "includeFiles") ? { includeFiles } : {}),
       ...(context && hasOwn(context, "excludeFiles") ? { excludeFiles } : {}),
@@ -447,7 +453,7 @@ function readStringList(
     if (!parsed) {
       return;
     }
-    if (!options.allowWildcard && (parsed === "*" || parsed.toLowerCase() === "all")) {
+    if (!options.allowWildcard && (parsed.includes("*") || parsed.toLowerCase() === "all")) {
       issues.push({ path: itemPath, message: "Wildcard allowlists are not allowed; list explicit entries." });
       return;
     }
