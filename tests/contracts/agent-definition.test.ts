@@ -53,7 +53,13 @@ describe("AgentDefinition", () => {
         network: "none",
         shell: "none",
       },
-      context: { inherit: "summary" },
+      context: {
+        inherit: "summary",
+        includeFiles: ["src/**/*.ts"],
+        excludeFiles: ["**/node_modules/**"],
+        parentSummaryMaxTokens: 1200,
+        attachRecentDiff: true,
+      },
       limits: {
         maxRuntimeSec: 900,
         maxTurns: 8,
@@ -62,8 +68,10 @@ describe("AgentDefinition", () => {
         maxOutputTokens: 8000,
         maxDepth: 1,
       },
-      mcpServers: ["docs"],
+      mcpServers: { docs: {} },
       outputSchema: "research_notes_v1",
+      resultMode: "json",
+      tags: ["builtin", "read-only"],
     });
 
     assert.equal(definition.name, "scout");
@@ -73,8 +81,14 @@ describe("AgentDefinition", () => {
     assert.equal(definition.maxInputTokens, 50000);
     assert.equal(definition.maxOutputTokens, 8000);
     assert.equal(definition.maxDepth, 1);
+    assert.deepEqual(definition.includeFiles, ["src/**/*.ts"]);
+    assert.deepEqual(definition.excludeFiles, ["**/node_modules/**"]);
+    assert.equal(definition.parentSummaryMaxTokens, 1200);
+    assert.equal(definition.attachRecentDiff, true);
     assert.deepEqual(definition.sandbox.mcpServers, ["docs"]);
     assert.equal(definition.outputSchema, "research_notes_v1");
+    assert.equal(definition.resultMode, "json");
+    assert.deepEqual(definition.tags, ["builtin", "read-only"]);
   });
 
   it("rejects missing name", () => {
@@ -129,6 +143,17 @@ describe("AgentDefinition", () => {
       () => parseAgentDefinition({ ...validDefinition, permissions: { filesystems: "read-only" } }),
       /permissions\.filesystems: Unknown field "filesystems"/,
     );
+  });
+
+  it("rejects full context from agent definitions", () => {
+    assert.throws(
+      () => parseAgentDefinition({ ...validDefinition, context: { inherit: "full" } }),
+      /inheritContext full requires spawn-time policy approval/,
+    );
+  });
+
+  it("rejects explicit null limits", () => {
+    assert.throws(() => parseAgentDefinition({ ...validDefinition, maxTurns: null }), /maxTurns must be greater than 0/);
   });
 
   it("freezes exported default allowlists", () => {

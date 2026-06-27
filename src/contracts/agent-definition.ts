@@ -24,6 +24,9 @@ export type ShellPolicy = (typeof SHELL_POLICIES)[number];
 export const CHILD_EXTENSION_POLICIES = ["deny-by-default", "allow"] as const;
 export type ChildExtensionPolicy = (typeof CHILD_EXTENSION_POLICIES)[number];
 
+export const RESULT_MODES = ["summary", "json", "patch", "artifact", "mixed"] as const;
+export type ResultMode = (typeof RESULT_MODES)[number];
+
 export interface AgentSandbox {
   filesystem: FilesystemPolicy;
   network: NetworkPolicy;
@@ -50,9 +53,15 @@ export interface AgentDefinition {
   maxOutputTokens?: number;
   maxDepth?: number;
   inheritContext: ContextInheritanceMode;
+  includeFiles?: string[];
+  excludeFiles?: string[];
+  parentSummaryMaxTokens?: number;
+  attachRecentDiff?: boolean;
   nestedSubagents: boolean;
   sandbox: AgentSandbox;
   outputSchema?: string | Record<string, unknown>;
+  resultMode?: ResultMode;
+  tags?: string[];
 }
 
 export interface ValidationIssue {
@@ -108,10 +117,20 @@ const TOP_LEVEL_AGENT_KEYS = new Set([
   "context",
   "limits",
   "outputSchema",
+  "resultMode",
+  "tags",
 ]);
 
-const LIMIT_KEYS = new Set(["maxTurns", "maxRuntimeSec", "maxCostUsd", "maxInputTokens", "maxOutputTokens", "maxDepth", "nestedSubagents"]);
-const CONTEXT_KEYS = new Set(["inherit"]);
+const LIMIT_KEYS = new Set([
+  "maxTurns",
+  "maxRuntimeSec",
+  "maxCostUsd",
+  "maxInputTokens",
+  "maxOutputTokens",
+  "maxDepth",
+  "nestedSubagents",
+]);
+const CONTEXT_KEYS = new Set(["inherit", "includeFiles", "excludeFiles", "parentSummaryMaxTokens", "attachRecentDiff"]);
 const SANDBOX_KEYS = new Set(["filesystem", "network", "shell", "mcp", "mcpServers", "childExtensions"]);
 
 export class AgentDefinitionValidationError extends Error {
@@ -170,26 +189,18 @@ export function validateAgentDefinition(input: unknown): ValidationResult<AgentD
     issues.push({ path: "limits", message: "Limits must be an object." });
   }
 
-  const maxTurns = readOptionalPositiveNumber(input.maxTurns ?? limits?.maxTurns, "maxTurns", issues);
+  const maxTurns = readOptionalPositiveNumber(readField(input, limits, "maxTurns"), "maxTurns", issues);
   const maxRuntimeSec = readOptionalPositiveNumber(
-    input.maxRuntimeSec ?? limits?.maxRuntimeSec,
+    readField(input, limits, "maxRuntimeSec"),
     "maxRuntimeSec",
     issues,
   );
-  const maxCostUsd = readOptionalNonNegativeNumber(input.maxCostUsd ?? limits?.maxCostUsd, "maxCostUsd", issues);
-  const maxInputTokens = readOptionalPositiveNumber(
-    input.maxInputTokens ?? limits?.maxInputTokens,
-    "maxInputTokens",
-    issues,
-  );
-  const maxOutputTokens = readOptionalPositiveNumber(
-    input.maxOutputTokens ?? limits?.maxOutputTokens,
-    "maxOutputTokens",
-    issues,
-  );
-  const maxDepth = readOptionalPositiveNumber(input.maxDepth ?? limits?.maxDepth, "maxDepth", issues);
+  const maxCostUsd = readOptionalNonNegativeNumber(readField(input, limits, "maxCostUsd"), "maxCostUsd", issues);
+  const maxInputTokens = readOptionalPositiveNumber(readField(input, limits, "maxInputTokens"), "maxInputTokens", issues);
+  const maxOutputTokens = readOptionalPositiveNumber(readField(input, limits, "maxOutputTokens"), "maxOutputTokens", issues);
+  const maxDepth = readOptionalPositiveNumber(readField(input, limits, "maxDepth"), "maxDepth", issues);
   const nestedSubagents = readOptionalBoolean(
-    input.nestedSubagents ?? limits?.nestedSubagents,
+    readField(input, limits, "nestedSubagents"),
     "nestedSubagents",
     issues,
   ) ?? AGENT_DEFINITION_DEFAULTS.nestedSubagents;
@@ -204,16 +215,33 @@ export function validateAgentDefinition(input: unknown): ValidationResult<AgentD
   if (context) {
     rejectUnknownKeys(context, CONTEXT_KEYS, "context", issues);
   }
+  const inheritContextValue = readField(input, context, "inheritContext", "inherit");
   const inheritContext = readEnum(
-    input.inheritContext ?? context?.inherit,
+    inheritContextValue,
     CONTEXT_INHERITANCE_MODES,
     "inheritContext",
     issues,
     AGENT_DEFINITION_DEFAULTS.inheritContext,
   );
+  if (inheritContext === "full") {
+    issues.push({
+      path: hasOwn(input, "inheritContext") ? "inheritContext" : "context.inherit",
+      message: "inheritContext full requires spawn-time policy approval and cannot be set by an agent definition.",
+    });
+  }
+  const includeFiles = readStringList(context?.includeFiles, "context.includeFiles", issues, []);
+  const excludeFiles = readStringList(context?.excludeFiles, "context.excludeFiles", issues, []);
+  const parentSummaryMaxTokens = readOptionalPositiveNumber(
+    context?.parentSummaryMaxTokens,
+    "context.parentSummaryMaxTokens",
+    issues,
+  );
+  const attachRecentDiff = readOptionalBoolean(context?.attachRecentDiff, "context.attachRecentDiff", issues);
 
   const sandbox = readSandbox(input, issues);
   const outputSchema = readOutputSchema(input.outputSchema, issues);
+  const resultMode = readOptionalEnum(input.resultMode, RESULT_MODES, "resultMode", issues);
+  const tags = readStringList(input.tags, "tags", issues, []);
 
   if (issues.length > 0 || !name || !description || !instructions) {
     return fail(issues);
@@ -239,9 +267,15 @@ export function validateAgentDefinition(input: unknown): ValidationResult<AgentD
       ...(maxOutputTokens !== undefined ? { maxOutputTokens } : {}),
       ...(maxDepth !== undefined ? { maxDepth } : {}),
       inheritContext,
+      ...(context && hasOwn(context, "includeFiles") ? { includeFiles } : {}),
+      ...(context && hasOwn(context, "excludeFiles") ? { excludeFiles } : {}),
+      ...(parentSummaryMaxTokens !== undefined ? { parentSummaryMaxTokens } : {}),
+      ...(attachRecentDiff !== undefined ? { attachRecentDiff } : {}),
       nestedSubagents,
       sandbox,
       ...(outputSchema !== undefined ? { outputSchema } : {}),
+      ...(resultMode !== undefined ? { resultMode } : {}),
+      ...(hasOwn(input, "tags") ? { tags } : {}),
     },
   };
 }
@@ -325,7 +359,7 @@ function readSandbox(input: Record<string, unknown>, issues: ValidationIssue[]):
       AGENT_DEFINITION_DEFAULTS.sandbox.network,
     ),
     shell: readEnum(source.shell, SHELL_POLICIES, "sandbox.shell", issues, AGENT_DEFINITION_DEFAULTS.sandbox.shell),
-    mcpServers: readStringList(
+    mcpServers: readStringListOrMap(
       mcpServers,
       "sandbox.mcpServers",
       issues,
@@ -347,7 +381,7 @@ function readRequiredString(
   issues: ValidationIssue[],
   fallback?: unknown,
 ): string | undefined {
-  const value = input[key] ?? fallback;
+  const value = hasOwn(input, key) ? input[key] : fallback;
   if (value === undefined) {
     issues.push({ path: key, message: `${key} is required.` });
     return undefined;
@@ -396,6 +430,18 @@ function readStringList(value: unknown, path: string, issues: ValidationIssue[],
   return strings;
 }
 
+function readStringListOrMap(
+  value: unknown,
+  path: string,
+  issues: ValidationIssue[],
+  fallback: readonly string[],
+): string[] {
+  if (isRecord(value)) {
+    return readStringList(Object.keys(value), path, issues, fallback);
+  }
+  return readStringList(value, path, issues, fallback);
+}
+
 function readEnum<const T extends readonly string[]>(
   value: unknown,
   allowed: T,
@@ -403,12 +449,21 @@ function readEnum<const T extends readonly string[]>(
   issues: ValidationIssue[],
   fallback: T[number],
 ): T[number] {
+  return readOptionalEnum(value, allowed, path, issues) ?? fallback;
+}
+
+function readOptionalEnum<const T extends readonly string[]>(
+  value: unknown,
+  allowed: T,
+  path: string,
+  issues: ValidationIssue[],
+): T[number] | undefined {
   if (value === undefined) {
-    return fallback;
+    return undefined;
   }
   if (typeof value !== "string" || !allowed.includes(value as T[number])) {
     issues.push({ path, message: `${path} must be one of: ${allowed.join(", ")}.` });
-    return fallback;
+    return undefined;
   }
   return value;
 }
@@ -470,6 +525,25 @@ function readOutputSchema(value: unknown, issues: ValidationIssue[]): string | R
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function readField(
+  input: Record<string, unknown>,
+  nested: Record<string, unknown> | undefined,
+  topLevelKey: string,
+  nestedKey = topLevelKey,
+): unknown {
+  if (hasOwn(input, topLevelKey)) {
+    return input[topLevelKey];
+  }
+  if (nested && hasOwn(nested, nestedKey)) {
+    return nested[nestedKey];
+  }
+  return undefined;
+}
+
+function hasOwn(record: Record<string, unknown>, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(record, key);
 }
 
 function rejectUnknownKeys(
