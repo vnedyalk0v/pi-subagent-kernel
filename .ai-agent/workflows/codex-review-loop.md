@@ -1,0 +1,70 @@
+# Codex review loop
+
+Use this file for PR feedback from `codex-connector bot` or for checking whether a PR has passed automated AI review.
+
+## Core rule
+
+This repository is configured for Codex review on PR open and every push. Do **not** post an initial `@codex review` comment and do **not** post `@codex review` after pushing fixes unless the owner explicitly directs it or automatic review is confirmed unavailable after a blocker comment.
+
+A PR is not ready for owner review until the latest `codex-connector bot` result after the latest commit is `+1` / thumbs-up / no major issues and no valid bot finding remains unresolved.
+
+## Deterministic polling rule
+
+For a current head commit:
+
+1. Poll for a Codex reaction/review up to 3 times.
+2. Wait between polls according to the harness capabilities; do not create background promises.
+3. If an 👀 reaction or in-progress signal exists, continue polling and do not post a manual trigger.
+4. If no automatic review appears after the polling window, leave a blocker comment and ask the owner for direction.
+5. Do not post more than one manual `@codex review` for the same head commit, and only do so after owner approval or confirmed auto-review failure.
+
+## Useful checks
+
+```bash
+gh pr view <pr-number> --json number,title,headRefOid,comments,reviews,statusCheckRollup
+
+gh api repos/vnedyalk0v/pi-subagent-kernel/issues/<pr-number>/comments \
+  --jq '.[] | {id, user: .user.login, body, reactions: .reactions, created_at}'
+
+gh api repos/vnedyalk0v/pi-subagent-kernel/pulls/<pr-number>/reviews
+
+gh api graphql -f query='query($owner:String!, $repo:String!, $number:Int!) { repository(owner:$owner, name:$repo) { pullRequest(number:$number) { reviewThreads(first:50) { nodes { id isResolved path comments(first:10) { nodes { author { login } body createdAt } } } } } } }' \
+  -F owner=vnedyalk0v -F repo=pi-subagent-kernel -F number=<pr-number>
+```
+
+## Review loop steps
+
+1. Confirm the PR head SHA.
+2. Check for existing Codex reviews/comments after that SHA.
+3. If latest Codex result is `+1` for the current head and there are no unresolved valid findings, the automated gate is complete.
+4. If Codex returns comments, read every comment and review thread.
+5. Classify each finding using `.ai-agent/review/codex-severity-taxonomy.md`.
+6. Validate each finding against code, tests, issue criteria, source docs, and safety policy.
+7. Fix every valid in-scope finding with the smallest safe change.
+8. Reply to each bot thread with what changed, why it is out of scope, or why it is invalid.
+9. Resolve each replied-to review thread only when addressed or explicitly judged invalid/out-of-scope with evidence.
+10. Run local validation.
+11. Push fixes.
+12. Wait for automatic Codex review for the new head.
+13. Repeat until latest current-head result is `+1` and no valid bot findings remain unresolved.
+
+## Finding classes
+
+- **Valid and in scope** — fix it, test it, reply with evidence, resolve.
+- **Valid but out of scope** — reply with evidence, open/propose follow-up, resolve unless owner input is required.
+- **Duplicate or outdated** — reply with evidence, resolve.
+- **Invalid** — reply with concise evidence, resolve.
+- **Ambiguous** — ask owner and mark blocked if needed.
+- **Unsafe suggestion** — do not apply; explain safety concern and ask owner.
+
+A bot comment is not valid merely because it exists.
+
+## Completion rule
+
+The automated review loop is complete only when:
+
+1. The latest `codex-connector bot` result was created after the latest commit.
+2. The latest result is `+1`, thumbs-up, or “didn't find any major issues”.
+3. There are no unresolved valid bot findings.
+4. Required checks pass or unavailable checks are documented.
+5. The PR and linked issue are assigned to `vnedyalk0v`.

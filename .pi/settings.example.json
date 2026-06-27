@@ -1,0 +1,4 @@
+{
+  "//": "Example only. Do not rename to settings.json or commit active Pi project settings unless an issue/owner explicitly requires it.",
+  "skills": ["../.agents/skills"]
+}

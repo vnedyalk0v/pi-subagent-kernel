@@ -1,0 +1,211 @@
+{
+  "version": "3.0.0",
+  "repository": "vnedyalk0v/pi-subagent-kernel",
+  "principle": "Read root AGENTS.md plus the smallest sufficient routed pack set. Add exactly one harness adapter when harness behavior matters. Do not bulk-read .ai-agent.",
+  "always_on": [
+    "AGENTS.md"
+  ],
+  "fallback_when_uncertain": [
+    ".ai-agent/README.md",
+    ".ai-agent/routing.md"
+  ],
+  "tasks": {
+    "pick-next-issue": {
+      "required": [
+        ".ai-agent/workflows/issue-selection.md",
+        ".ai-agent/workflows/project-board.md"
+      ],
+      "checks": [
+        "list open issues",
+        "list open PRs",
+        "skip blocked/needs-decision",
+        "assign selected issue to vnedyalk0v"
+      ],
+      "not_required": [
+        "codex-review-loop",
+        "release-guardrails",
+        "dependency-gate unless deps touched"
+      ]
+    },
+    "implementation-general": {
+      "required": [
+        ".ai-agent/implementation/engineering-principles.md",
+        ".ai-agent/implementation/mvp-order-and-scope.md",
+        ".ai-agent/implementation/source-layout.md",
+        ".ai-agent/implementation/testing-and-validation.md"
+      ],
+      "checks": [
+        "issue scope",
+        "tests for success and failure",
+        "no unverified Pi APIs"
+      ]
+    },
+    "contracts-schemas": {
+      "required": [
+        ".ai-agent/implementation/engineering-principles.md",
+        ".ai-agent/implementation/mvp-order-and-scope.md",
+        ".ai-agent/implementation/source-layout.md",
+        ".ai-agent/implementation/contracts-and-schemas.md",
+        ".ai-agent/implementation/testing-and-validation.md"
+      ],
+      "checks": [
+        "runtime validation",
+        "required fields",
+        "invalid input tests"
+      ]
+    },
+    "safety-sensitive": {
+      "required": [
+        ".ai-agent/core/safety-defaults-and-privacy.md",
+        ".ai-agent/security/untrusted-input-and-prompt-injection.md",
+        ".ai-agent/implementation/testing-and-validation.md"
+      ],
+      "checks": [
+        "treat as type:security area:safety",
+        "do not relax defaults without tests and owner/issue authority"
+      ]
+    },
+    "dependency-change": {
+      "required": [
+        ".ai-agent/security/dependency-gate.md",
+        ".ai-agent/templates/dependency-gate-report.md",
+        ".ai-agent/implementation/testing-and-validation.md"
+      ],
+      "checks": [
+        "owner or issue approval",
+        "reason built-in features are insufficient",
+        "license/security risk",
+        "lockfile review"
+      ]
+    },
+    "open-pr": {
+      "required": [
+        ".ai-agent/workflows/branch-commit-pr.md",
+        ".ai-agent/workflows/pre-pr-verifier.md",
+        ".ai-agent/templates/pr-body.md",
+        ".ai-agent/templates/validation-evidence.md"
+      ],
+      "checks": [
+        "local validation",
+        "ponytail-review",
+        "assignee",
+        "labels/milestone/project",
+        "Closes or Refs"
+      ]
+    },
+    "repair-pr-metadata": {
+      "required": [
+        ".ai-agent/workflows/pr-metadata-repair.md",
+        ".ai-agent/workflows/project-board.md"
+      ],
+      "checks": [
+        "copy issue metadata",
+        "do not alter code unless requested"
+      ]
+    },
+    "codex-review-comments": {
+      "required": [
+        ".ai-agent/workflows/codex-review-loop.md",
+        ".ai-agent/review/codex-severity-taxonomy.md",
+        ".ai-agent/templates/codex-review-replies.md"
+      ],
+      "checks": [
+        "validate every finding",
+        "fix valid in-scope",
+        "reply and resolve",
+        "current head has +1"
+      ]
+    },
+    "ci-failure": {
+      "required": [
+        ".ai-agent/workflows/ci-failure-triage.md",
+        ".ai-agent/implementation/testing-and-validation.md",
+        ".ai-agent/templates/ci-failure-report.md"
+      ],
+      "checks": [
+        "identify failing check",
+        "do not weaken tests",
+        "fix smallest cause",
+        "push and wait for Codex auto-review"
+      ]
+    },
+    "release-or-publish": {
+      "required": [
+        ".ai-agent/security/release-guardrails.md",
+        ".ai-agent/templates/validation-evidence.md"
+      ],
+      "checks": [
+        "explicit owner authorization",
+        "M9 scope",
+        "npm pack before publish",
+        "clean install test",
+        "CI green",
+        "Codex +1"
+      ]
+    },
+    "instruction-change": {
+      "required": [
+        ".ai-agent/harness/pi-coding-agent.md",
+        ".ai-agent/workflows/instruction-change-governance.md",
+        ".ai-agent/tests/routing-audit.md",
+        ".ai-agent/tests/expected-routing.md",
+        ".ai-agent/templates/instruction-change-report.md"
+      ],
+      "checks": [
+        "list hard rules changed/removed",
+        "prove not looser",
+        "routing audit",
+        "if Pi context files changed, mention /reload or restart"
+      ]
+    },
+    "repo-controls": {
+      "required": [
+        ".ai-agent/github/repository-controls.md",
+        ".ai-agent/workflows/blockers.md"
+      ],
+      "checks": [
+        "owner/admin action",
+        "manual checklist first",
+        "do not change settings silently"
+      ]
+    },
+    "pi-harness-operation": {
+      "required": [
+        ".ai-agent/harness/pi-coding-agent.md",
+        ".ai-agent/research/v3-pi-harness-research-notes.md"
+      ],
+      "checks": [
+        "do not assume .ai-agent auto-loading",
+        "use /reload or restart after context-file changes",
+        "verify required project skills are discovered/trusted",
+        "do not add .pi/settings.json without owner approval",
+        "verify Pi extension APIs before implementation"
+      ],
+      "not_required": [
+        "codex-review-loop unless PR feedback exists",
+        "release-guardrails unless release is in scope",
+        "all harness adapters"
+      ]
+    }
+  },
+  "harness_adapters": {
+    "pi-coding-agent": {
+      "required_when": [
+        "current harness is Pi Coding Agent and task involves implementation, shell, PR, skills, extensions, context files, /reload, RPC, or Pi runtime behavior"
+      ],
+      "file": ".ai-agent/harness/pi-coding-agent.md"
+    },
+    "codex": {
+      "file": ".ai-agent/harness/codex.md"
+    },
+    "claude-code": {
+      "file": ".ai-agent/harness/claude-code.md"
+    },
+    "copilot": {
+      "file": ".ai-agent/harness/copilot.md"
+    },
+    "unknown": {
+      "file": ".ai-agent/harness/README.md"
+    }
+  }
+}
