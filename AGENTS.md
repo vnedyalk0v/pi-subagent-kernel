@@ -317,7 +317,17 @@ The expected review bot is:
 codex-connector bot
 ```
 
-Trigger review by posting this exact PR comment:
+Before triggering review, inspect existing PR comments and reviews. If an `@codex review` comment has an 👀 (`eyes`) reaction and no later `codex-connector bot` result, review is already in progress; do not post another trigger. Wait and poll instead.
+
+Useful check:
+
+```bash
+gh api repos/vnedyalk0v/pi-subagent-kernel/issues/<pr-number>/comments \
+  --jq '.[] | {id, user: .user.login, body, reactions: .reactions, created_at}'
+gh api repos/vnedyalk0v/pi-subagent-kernel/pulls/<pr-number>/reviews
+```
+
+Trigger review only when no review is in progress by posting this exact PR comment:
 
 ```text
 @codex review
@@ -326,15 +336,16 @@ Trigger review by posting this exact PR comment:
 ### Review loop steps
 
 1. Open or update the PR.
-2. Post `@codex review` as a PR comment.
-3. Wait for a new `codex-connector bot` comment or review that was created after the latest commit.
-4. Read every bot comment and review thread.
-5. Validate each finding before changing code.
-6. Fix valid findings with the smallest safe change.
-7. Reply to the bot comment with what changed and the commit SHA.
-8. Mark the conversation resolved if it is genuinely addressed and you have permission.
-9. If you changed code after the bot review, post a new `@codex review` comment.
-10. Repeat until the latest bot result after the latest commit is `+1` and there are no unresolved valid bot findings.
+2. Check for an existing in-progress Codex review (`@codex review` comment with 👀 and no later bot result).
+3. If no review is in progress, post `@codex review` as a PR comment.
+4. Wait for a new `codex-connector bot` comment or review that was created after the latest commit.
+5. Read every bot comment and review thread.
+6. Validate each finding before changing code.
+7. Fix valid findings with the smallest safe change.
+8. Reply to the bot comment with what changed and the commit SHA.
+9. Mark the conversation resolved if it is genuinely addressed and you have permission.
+10. If you changed code after the bot review, check for an in-progress review before posting a new `@codex review` comment.
+11. Repeat until the latest bot result after the latest commit is `+1` and there are no unresolved valid bot findings.
 
 ### Waiting and polling
 

@@ -37,7 +37,17 @@ Recommended MVP package:
 pi-subagent-kernel        # Pi extension entrypoint, tools, commands, UI, schemas, and backends
 ```
 
-Future package split names are TBD. For MVP, a single package is acceptable if modules are structured so they can split later.
+Keep these package-role boundaries visible for a possible future split:
+
+```text
+core        # runtime-neutral state machine, schemas, policies
+extension   # Pi extension entrypoint, tools, commands, UI
+backends    # optional backend implementations
+compat      # Codex/Claude/OpenCode importers
+workflows   # optional DAG/fanout workflows, post-MVP
+```
+
+Future split package names are TBD. For MVP, a single package is acceptable if modules are structured so they can split later.
 
 ## Runtime components
 
