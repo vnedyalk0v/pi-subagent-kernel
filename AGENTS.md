@@ -67,7 +67,7 @@ Do not start Post-MVP work while MVP issues are still open unless the owner expl
 
 ## 5. Issue selection rules
 
-When choosing work autonomously:
+When the owner names an issue, work that issue. When the owner says to pick next or choose work, decide from repository state instead of guessing:
 
 1. List open issues and open PRs first.
 2. Do not start a new issue if there is already an open PR for the same issue.
@@ -239,6 +239,10 @@ Closes #<issue-number>
 - [ ] No unverified Pi API claims
 - [ ] No npm publishing
 
+## Pre-PR verifier gate
+- [ ] Ran a fresh verifier subagent with `ponytail-review` against the final diff before opening the PR
+- [ ] Fixed or documented every valid verifier finding
+
 ## Codex review loop
 - [ ] Initial automatic `codex-connector bot` review completed
 - [ ] Addressed, replied to, and resolved all valid `codex-connector bot` findings
@@ -272,7 +276,23 @@ git diff --check
 
 Never claim that tests pass unless you ran them and saw a passing result. If tests cannot run, state the exact reason.
 
-## 12. Opening a PR
+## 12. Pre-PR verifier gate
+
+Before opening any PR, run a fresh subagent as an independent verifier over the final diff.
+
+Required verifier behavior:
+
+1. Use a new/fresh context, not the implementation context.
+2. Use the `ponytail-review` skill (`/ponytail-review`) to hunt over-engineering and unnecessary complexity.
+3. Give the verifier the issue number, acceptance criteria, files changed, and current diff.
+4. Treat the verifier as a second gate before the GitHub PR review gate.
+5. If the verifier says `Lean already. Ship.`, proceed.
+6. If the verifier reports findings, validate them, fix every valid in-scope finding, rerun local validation, and rerun the verifier if the fix materially changes the diff.
+7. If a finding is invalid or out of scope, document why in the PR body.
+
+Do not open the PR until local validation and the verifier gate are complete, unless the owner explicitly allows skipping the verifier.
+
+## 13. Opening a PR
 
 Open a PR only after:
 
@@ -280,7 +300,8 @@ Open a PR only after:
 2. The branch is based on current `main`.
 3. The implementation is limited to the linked issue.
 4. Local validation has passed or unavailable checks are documented.
-5. The PR body includes `Closes #<issue-number>` or a clear reason for using `Refs` instead.
+5. The pre-PR verifier subagent has passed, or any valid findings are fixed.
+6. The PR body includes `Closes #<issue-number>` or a clear reason for using `Refs` instead.
 
 Recommended command shape:
 
@@ -306,7 +327,7 @@ Do not rely on the linked issue metadata alone. The PR itself must have the same
 
 Move the PR project item to `In Review` if project access is available. Copy project fields from the issue when present: `Priority`, `Area`, `Phase`, `Risk`, and `Source Doc`. Then follow the automated review loop below. Do not post an initial `@codex review`: Codex starts automatically when the PR opens. If work cannot continue, use `Blocked` and leave a readable blocker comment.
 
-## 13. Automated AI review loop: `codex-connector bot`
+## 14. Automated AI review loop: `codex-connector bot`
 
 Every PR must go through the automated AI review loop.
 
@@ -415,7 +436,7 @@ The automated review loop is complete only when all of these are true:
 5. The PR is assigned to `vnedyalk0v`.
 6. The linked issue is assigned to `vnedyalk0v`.
 
-## 14. Human owner review and merge rules
+## 15. Human owner review and merge rules
 
 Do not merge PRs unless the owner explicitly instructs you to merge.
 
@@ -438,7 +459,7 @@ Ready for owner review.
 - Remaining limitations: <none or list>
 ```
 
-## 15. Implementation guardrails
+## 16. Implementation guardrails
 
 Keep the implementation narrow and staged.
 
@@ -466,7 +487,7 @@ Do not:
 9. Store active runs only in memory while claiming durability.
 10. Copy features from third-party packages without tests and a migration path.
 
-## 16. Safety defaults that must not regress
+## 17. Safety defaults that must not regress
 
 The default policy must remain deny-by-default unless an issue explicitly changes it and tests prove the behavior.
 
@@ -485,7 +506,7 @@ projectAgentsRequireConfirmation = true
 
 Any change that relaxes these defaults is security-sensitive and must be labeled or treated as `type:security` and `area:safety`.
 
-## 17. Recommended source layout
+## 18. Recommended source layout
 
 Use this layout unless an accepted issue or PR changes it:
 
@@ -535,7 +556,7 @@ tests/
 
 Do not create directories for future features unless the current issue needs them.
 
-## 18. MVP coding priorities
+## 19. MVP coding priorities
 
 Build in this order:
 
@@ -560,7 +581,7 @@ Build in this order:
 
 Do not implement Claude/Codex importers, worktree backend, workflow engine, FleetView, remote workers, or npm release before the relevant milestone.
 
-## 19. Documentation rules
+## 20. Documentation rules
 
 Documentation must describe what is true now, not what might exist later.
 
@@ -574,7 +595,7 @@ Use precise language:
 
 When adding or changing architecture claims, update `docs/00-source-basis.md` if the claim depends on external facts.
 
-## 20. Secrets, privacy, and chain-of-thought
+## 21. Secrets, privacy, and chain-of-thought
 
 Never commit:
 
@@ -586,7 +607,7 @@ Never commit:
 
 If a secret is accidentally exposed, stop, notify the owner in the PR or issue, and do not continue until directed.
 
-## 21. Handling uncertainty and blockers
+## 22. Handling uncertainty and blockers
 
 Stop and ask for owner direction when:
 
@@ -617,7 +638,7 @@ When blocked, leave a concise issue or PR comment from a body file with:
 <one recommendation>
 ```
 
-## 22. Definition of done
+## 23. Definition of done
 
 A PR is ready for owner review only when:
 
@@ -632,8 +653,9 @@ A PR is ready for owner review only when:
 9. Integration or simulated flow tests are added where the issue calls for behavior changes.
 10. No logs or artifacts include secrets, API keys, or hidden chain-of-thought content.
 11. Local validation and CI pass, or unavailable checks are explicitly documented.
-12. All valid `codex-connector bot` findings are fixed or answered with evidence.
-13. The latest bot result after the latest commit is `+1`.
-14. Project status is `In Review` or the inability to update it is documented.
+12. The pre-PR verifier subagent ran with `ponytail-review`, and every valid finding is fixed or documented.
+13. All valid `codex-connector bot` findings are fixed or answered with evidence.
+14. The latest bot result after the latest commit is `+1`.
+15. Project status is `In Review` or the inability to update it is documented.
 
 Do not mark an issue complete before its PR is merged.
