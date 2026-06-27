@@ -373,7 +373,7 @@ gh api graphql -f query='query($owner:String!, $repo:String!, $number:Int!) { re
 7. Fix every valid in-scope finding with the smallest safe change.
 8. Reply to each bot review thread with what changed, why it is out of scope, or why it is invalid, including the commit SHA when code changed.
 9. Immediately resolve each replied-to review thread, equivalent to clicking **Resolve conversation**. If permission is missing, leave a blocker comment and stop.
-10. After fixes are pushed and all addressed threads are resolved, request one re-review by posting exactly:
+10. After fixes are pushed and all addressed threads are resolved, ensure the current head gets reviewed. If an automatic review is already in progress, wait. Otherwise request one re-review by posting exactly:
 
 ```text
 @codex review
@@ -397,7 +397,14 @@ A bot comment is not valid merely because it exists. Replying to a bot review th
 
 ### Re-review rule
 
-Only request re-review after Codex posted review comments and you have fixed/replied/resolved the findings. Before posting `@codex review`, verify there is no in-progress Codex run for the current head commit. If 👀 is present and no later bot result exists, wait.
+Any commit pushed after the latest Codex result makes that result stale. The current head commit still needs a Codex result.
+
+Request re-review when either is true:
+
+1. Codex posted comments, and you fixed/replied/resolved them.
+2. A new commit was pushed after a clean `+1` result.
+
+Before posting `@codex review`, verify there is no in-progress Codex run for the current head commit. If 👀 is present and no later bot result exists, wait.
 
 Never post more than one `@codex review` for the same head commit unless the owner explicitly instructs you to do so.
 
