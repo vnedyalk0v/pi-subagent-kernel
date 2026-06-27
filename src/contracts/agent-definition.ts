@@ -65,6 +65,7 @@ export interface AgentDefinition {
   outputSchema?: string | Record<string, unknown>;
   resultMode?: ResultMode;
   tags?: string[];
+  compat?: Record<string, unknown>;
 }
 
 export interface ValidationIssue {
@@ -125,6 +126,7 @@ const TOP_LEVEL_AGENT_KEYS = new Set([
   "outputSchema",
   "resultMode",
   "tags",
+  "compat",
 ]);
 
 const LIMIT_KEYS = new Set([
@@ -242,6 +244,7 @@ export function validateAgentDefinition(input: unknown): ValidationResult<AgentD
   const outputSchema = readOutputSchema(input.outputSchema, issues);
   const resultMode = readOptionalEnum(input.resultMode, RESULT_MODES, "resultMode", issues);
   const tags = readStringList(input.tags, "tags", issues, []);
+  const compat = readOptionalRecord(input.compat, "compat", issues);
 
   if (issues.length > 0 || !name || !description || !instructions) {
     return fail(issues);
@@ -249,7 +252,7 @@ export function validateAgentDefinition(input: unknown): ValidationResult<AgentD
 
   return {
     ok: true,
-    value: {
+    value: deepFreeze({
       name,
       description,
       instructions,
@@ -277,7 +280,8 @@ export function validateAgentDefinition(input: unknown): ValidationResult<AgentD
       ...(outputSchema !== undefined ? { outputSchema } : {}),
       ...(resultMode !== undefined ? { resultMode } : {}),
       ...(hasOwn(input, "tags") ? { tags } : {}),
-    },
+      ...(compat !== undefined ? { compat } : {}),
+    }),
   };
 }
 
@@ -430,6 +434,17 @@ function readOptionalString(value: unknown, path: string, issues: ValidationIssu
   return trimmed;
 }
 
+function readOptionalRecord(value: unknown, path: string, issues: ValidationIssue[]): Record<string, unknown> | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!isRecord(value)) {
+    issues.push({ path, message: `${path} must be an object.` });
+    return undefined;
+  }
+  return value;
+}
+
 function readStringList(
   value: unknown,
   path: string,
@@ -559,6 +574,14 @@ function readLimit<T>(
 
 function hasOwn(record: Record<string, unknown>, key: string): boolean {
   return Object.prototype.hasOwnProperty.call(record, key);
+}
+
+function deepFreeze<T>(value: T): T {
+  if (value && typeof value === "object") {
+    Object.values(value).forEach(deepFreeze);
+    Object.freeze(value);
+  }
+  return value;
 }
 
 function rejectUnknownKeys(

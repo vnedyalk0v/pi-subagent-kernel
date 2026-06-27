@@ -76,6 +76,7 @@ describe("AgentDefinition", () => {
       outputSchema: "research_notes_v1",
       resultMode: "json",
       tags: ["builtin", "read-only"],
+      compat: { source: "claude", inheritedTools: true, unmapped: { extra: "kept" } },
     });
 
     assert.equal(definition.name, "scout");
@@ -94,6 +95,7 @@ describe("AgentDefinition", () => {
     assert.equal(definition.outputSchema, "research_notes_v1");
     assert.equal(definition.resultMode, "json");
     assert.deepEqual(definition.tags, ["builtin", "read-only"]);
+    assert.deepEqual(definition.compat, { source: "claude", inheritedTools: true, unmapped: { extra: "kept" } });
   });
 
   it("rejects missing name", () => {
@@ -207,6 +209,13 @@ describe("AgentDefinition", () => {
         }),
       /permissions\.filesystem must be one of/,
     );
+  });
+
+  it("freezes normalized definitions", () => {
+    const definition = parseAgentDefinition(validDefinition);
+
+    assert.throws(() => definition.tools.push("write"), TypeError);
+    assert.throws(() => ((definition.sandbox as { filesystem: string }).filesystem = "unrestricted"), TypeError);
   });
 
   it("freezes exported default allowlists", () => {
