@@ -2,11 +2,12 @@
 
 ## Product name
 
-Working name: **pi-subagent-kernel**.
+Display name: **Pi SubAgent Kernel**.
+
+Repository/package name: **pi-subagent-kernel**.
 
 Package name candidates:
 
-- `@pi-subagents/extension`
 - `pi-subagent-kernel`
 - `@your-scope/pi-subagent-kernel`
 

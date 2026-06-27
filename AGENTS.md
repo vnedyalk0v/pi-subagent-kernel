@@ -14,13 +14,7 @@ Use these names exactly:
 - GitHub repository: **vnedyalk0v/pi-subagent-kernel**
 - Default branch: **main**
 
-Do not introduce these old or incorrect names:
-
-- `Pi Sugagent Kernel`
-- `Pi Subagent Next`
-- `Pi SubAgents Next`
-- `Pi SubAgent Next`
-- `pi-subagents-next`
+Do not introduce non-canonical historical project names or variants that change the spelling, capitalization, pluralization, or package slug above.
 
 If you find inconsistent naming, create or update work under issue `#1` unless the current task explicitly says otherwise.
 
@@ -73,7 +67,7 @@ Do not start Post-MVP work while MVP issues are still open unless the owner expl
 
 ## 5. Issue selection rules
 
-When choosing work autonomously:
+When the owner names an issue, work that issue. When the owner says to pick next or choose work, decide from repository state instead of guessing:
 
 1. List open issues and open PRs first.
 2. Do not start a new issue if there is already an open PR for the same issue.
@@ -245,10 +239,15 @@ Closes #<issue-number>
 - [ ] No unverified Pi API claims
 - [ ] No npm publishing
 
+## Pre-PR verifier gate
+- [ ] Ran a fresh verifier subagent with `ponytail-review` against the final diff before opening the PR
+- [ ] Fixed or documented every valid verifier finding
+- [ ] If `ponytail-review` was unavailable, owner approved the documented fallback before PR open
+
 ## Codex review loop
-- [ ] Posted `@codex review`
-- [ ] Addressed or replied to all valid `codex-connector bot` findings
-- [ ] Requested re-review after fixes
+- [ ] Initial automatic `codex-connector bot` review completed
+- [ ] Addressed, replied to, and resolved all valid `codex-connector bot` findings
+- [ ] Requested re-review with `@codex review` after fixes, if findings required changes
 - [ ] Latest `codex-connector bot` result after latest commit is `+1`
 ```
 
@@ -273,12 +272,29 @@ For documentation-only changes, run relevant checks such as:
 
 ```bash
 git diff --check
-grep -R "Pi Sugagent Kernel\|Pi Subagent Next\|Pi SubAgents Next\|Pi SubAgent Next\|pi-subagents-next" -n . || true
+# Search the repository for any issue-specific forbidden strings.
 ```
 
 Never claim that tests pass unless you ran them and saw a passing result. If tests cannot run, state the exact reason.
 
-## 12. Opening a PR
+## 12. Pre-PR verifier gate
+
+Before opening any PR, run a fresh subagent as an independent verifier over the final diff.
+
+Required verifier behavior:
+
+1. Use a new/fresh context, not the implementation context.
+2. Use the `ponytail-review` skill (`/ponytail-review`) to hunt over-engineering and unnecessary complexity.
+3. Give the verifier the issue number, acceptance criteria, files changed, and current diff.
+4. Treat the verifier as a second gate before the GitHub PR review gate.
+5. If the verifier says `Lean already. Ship.`, proceed.
+6. If the verifier reports findings, validate them, fix every valid in-scope finding, rerun local validation, and rerun the verifier if the fix materially changes the diff.
+7. If a finding is invalid or out of scope, document why in the PR body.
+8. If `ponytail-review` is unavailable in the agent harness, stop before opening the PR and ask the owner to install or enable it, or to approve a one-time documented fallback. Do not silently substitute another review.
+
+Do not open the PR until local validation and the verifier gate are complete, unless the owner explicitly allows skipping or replacing the verifier.
+
+## 13. Opening a PR
 
 Open a PR only after:
 
@@ -286,7 +302,8 @@ Open a PR only after:
 2. The branch is based on current `main`.
 3. The implementation is limited to the linked issue.
 4. Local validation has passed or unavailable checks are documented.
-5. The PR body includes `Closes #<issue-number>` or a clear reason for using `Refs` instead.
+5. The pre-PR verifier subagent has passed, any valid findings are fixed, or an owner-approved fallback is documented.
+6. The PR body includes `Closes #<issue-number>` or a clear reason for using `Refs` instead.
 
 Recommended command shape:
 
@@ -298,16 +315,21 @@ gh pr create \
   --head <branch-name>
 ```
 
-After opening:
+After opening, immediately mirror the linked issue metadata onto the PR:
 
 ```bash
-gh pr edit <pr-number> --add-assignee vnedyalk0v
-gh pr comment <pr-number> --body "@codex review"
+gh pr edit <pr-number> \
+  --add-assignee vnedyalk0v \
+  --milestone "<issue milestone>" \
+  --add-label "<comma-separated issue labels>" \
+  --add-project "Pi SubAgent Kernel — Build Board"
 ```
 
-Move the project item to `In Review` if project access is available.
+Do not rely on the linked issue metadata alone. The PR itself must have the same milestone, labels, assignee, and project link unless the PR intentionally differs and the body explains why.
 
-## 13. Automated AI review loop: `codex-connector bot`
+Move the PR project item to `In Review` if project access is available. Copy project fields from the issue when present: `Priority`, `Area`, `Phase`, `Risk`, and `Source Doc`. Then follow the automated review loop below. Do not post an initial `@codex review`: Codex starts automatically when the PR opens. If work cannot continue, use `Blocked` and leave a readable blocker comment.
+
+## 14. Automated AI review loop: `codex-connector bot`
 
 Every PR must go through the automated AI review loop.
 
@@ -317,70 +339,113 @@ The expected review bot is:
 codex-connector bot
 ```
 
-Trigger review by posting this exact PR comment:
+### Core rule
+
+Opening a PR automatically triggers Codex review. Do **not** post an initial `@codex review` comment.
+
+While review is running, the PR or review trigger shows an 👀 (`eyes`) reaction. If you see 👀 and there is no later `codex-connector bot` result for the current head commit, review is in progress. Wait and poll. Do not post another trigger.
+
+A Codex result is one of:
+
+1. `+1` / thumbs-up / “didn't find any major issues” after the current head commit — the automated review gate is satisfied.
+2. One or more review comments/threads — validate and handle every finding.
+
+### Useful checks
+
+```bash
+gh pr view <pr-number> --json number,title,headRefOid,comments,reviews,statusCheckRollup
+
+gh api repos/vnedyalk0v/pi-subagent-kernel/issues/<pr-number>/comments \
+  --jq '.[] | {id, user: .user.login, body, reactions: .reactions, created_at}'
+
+gh api repos/vnedyalk0v/pi-subagent-kernel/pulls/<pr-number>/reviews
+
+gh api graphql -f query='query($owner:String!, $repo:String!, $number:Int!) { repository(owner:$owner, name:$repo) { pullRequest(number:$number) { reviewThreads(first:50) { nodes { id isResolved path comments(first:10) { nodes { author { login } body createdAt } } } } } } }' \
+  -F owner=vnedyalk0v -F repo=pi-subagent-kernel -F number=<pr-number>
+```
+
+### Review loop steps
+
+1. Open the PR.
+2. Mirror issue metadata onto the PR and project item.
+3. Wait for the automatic Codex review. Do not post `@codex review` while 👀 indicates review is in progress.
+4. If Codex returns `+1` for the current head commit and there are no unresolved valid findings, the automated review gate is complete.
+5. If Codex returns review comments, read every comment and review thread.
+6. Validate each finding against code, tests, issue acceptance criteria, and source docs.
+7. Fix every valid in-scope finding with the smallest safe change.
+8. Reply to each bot review thread with what changed, why it is out of scope, or why it is invalid, including the commit SHA when code changed.
+9. Immediately resolve each replied-to review thread, equivalent to clicking **Resolve conversation**. If permission is missing, leave a blocker comment and stop.
+10. After fixes are pushed and all addressed threads are resolved, ensure the current head gets reviewed. If an automatic review is already in progress, wait. Otherwise request one re-review by posting exactly:
 
 ```text
 @codex review
 ```
 
-### Review loop steps
-
-1. Open or update the PR.
-2. Post `@codex review` as a PR comment.
-3. Wait for a new `codex-connector bot` comment or review that was created after the latest commit.
-4. Read every bot comment and review thread.
-5. Validate each finding before changing code.
-6. Fix valid findings with the smallest safe change.
-7. Reply to the bot comment with what changed and the commit SHA.
-8. Mark the conversation resolved if it is genuinely addressed and you have permission.
-9. If you changed code after the bot review, post a new `@codex review` comment.
-10. Repeat until the latest bot result after the latest commit is `+1` and there are no unresolved valid bot findings.
-
-### Waiting and polling
-
-Use the available GitHub tool, GitHub UI, or `gh` commands to inspect comments and reviews.
-
-Useful commands:
-
-```bash
-gh pr view <pr-number> --json number,title,headRefOid,comments,reviews,statusCheckRollup
-```
-
-Do not pretend that a bot review happened. If the bot does not respond after a reasonable polling window or two review requests, leave a PR comment that review was requested but no bot response appeared, then stop and wait for owner direction.
+11. Wait for the new Codex result. If 👀 is present, do not post another trigger.
+12. Repeat until the latest Codex result after the latest head commit is `+1` and no valid bot findings remain unresolved.
 
 ### How to handle bot findings
 
 Classify each finding as one of these:
 
-1. **Valid and in scope** — fix it, test it, reply with evidence, mark resolved.
-2. **Valid but out of scope** — open or propose a follow-up issue, link it, and ask the owner before expanding the PR.
-3. **Duplicate or outdated** — reply with evidence that it is already handled or no longer applies.
-4. **Invalid** — reply with a concise explanation and evidence. Do not change code just to satisfy an invalid finding.
-5. **Ambiguous** — ask for owner direction and mark the PR or issue blocked if needed.
-6. **Unsafe suggestion** — do not apply it. Explain the safety concern and request owner direction.
+1. **Valid and in scope** — fix it, test it, reply with evidence, then resolve the review thread.
+2. **Valid but out of scope** — reply with evidence, open or propose a follow-up issue, then resolve the review thread unless owner input is required.
+3. **Duplicate or outdated** — reply with evidence that it is already handled or no longer applies, then resolve the review thread.
+4. **Invalid** — reply with a concise explanation and evidence, then resolve the review thread. Do not change code just to satisfy an invalid finding.
+5. **Ambiguous** — ask for owner direction and mark the PR or issue blocked if needed. Resolve only after the ambiguity is answered.
+6. **Unsafe suggestion** — do not apply it. Explain the safety concern, request owner direction, and leave the thread unresolved until directed.
 
-A bot comment is not valid merely because it exists. Validate against code, tests, issue acceptance criteria, and source docs.
+A bot comment is not valid merely because it exists. Replying to a bot review thread is not complete until the thread is resolved or explicitly left unresolved because it is blocked on owner direction.
 
 ### Re-review rule
 
-Any commit pushed after the latest `codex-connector bot` review invalidates the previous bot result. Request review again by posting:
+Any commit pushed after the latest Codex result makes that result stale. The current head commit still needs a Codex result.
 
-```text
-@codex review
+Request re-review when either is true:
+
+1. Codex posted comments, and you fixed/replied/resolved them.
+2. A new commit was pushed after a clean `+1` result.
+
+Before posting `@codex review`, verify there is no in-progress Codex run for the current head commit. If 👀 is present and no later bot result exists, wait.
+
+Never post more than one `@codex review` for the same head commit unless the owner explicitly instructs you to do so.
+
+### Waiting, blocker comments, and formatting
+
+Do not pretend that a bot review happened. If the bot does not respond after a reasonable polling window, leave a readable PR comment from a body file and wait for owner direction.
+
+For multi-line PR or issue comments, use a heredoc/body file. Do not pass literal `\n` sequences in a quoted shell string; GitHub renders them as ugly text.
+
+```bash
+cat > /tmp/pr-comment.md <<'EOF'
+### Blocked
+
+**Reason**
+<specific reason>
+
+**Evidence**
+- <link or command output>
+
+**Options**
+1. <option>
+2. <option>
+EOF
+
+gh pr comment <pr-number> --body-file /tmp/pr-comment.md
 ```
 
 ### Completion rule
 
 The automated review loop is complete only when all of these are true:
 
-1. The latest `codex-connector bot` response was created after the latest commit.
-2. The latest bot response is `+1` or an explicit approval/success signal defined by the owner.
-3. There are no unresolved valid bot findings.
+1. The latest `codex-connector bot` result was created after the latest commit.
+2. The latest bot result is `+1`, thumbs-up, or “didn't find any major issues”.
+3. There are no unresolved valid bot findings or unresolved bot review threads.
 4. Required checks pass or unavailable checks are documented.
 5. The PR is assigned to `vnedyalk0v`.
 6. The linked issue is assigned to `vnedyalk0v`.
 
-## 14. Human owner review and merge rules
+## 15. Human owner review and merge rules
 
 Do not merge PRs unless the owner explicitly instructs you to merge.
 
@@ -403,7 +468,7 @@ Ready for owner review.
 - Remaining limitations: <none or list>
 ```
 
-## 15. Implementation guardrails
+## 16. Implementation guardrails
 
 Keep the implementation narrow and staged.
 
@@ -431,7 +496,7 @@ Do not:
 9. Store active runs only in memory while claiming durability.
 10. Copy features from third-party packages without tests and a migration path.
 
-## 16. Safety defaults that must not regress
+## 17. Safety defaults that must not regress
 
 The default policy must remain deny-by-default unless an issue explicitly changes it and tests prove the behavior.
 
@@ -450,7 +515,7 @@ projectAgentsRequireConfirmation = true
 
 Any change that relaxes these defaults is security-sensitive and must be labeled or treated as `type:security` and `area:safety`.
 
-## 17. Recommended source layout
+## 18. Recommended source layout
 
 Use this layout unless an accepted issue or PR changes it:
 
@@ -500,7 +565,7 @@ tests/
 
 Do not create directories for future features unless the current issue needs them.
 
-## 18. MVP coding priorities
+## 19. MVP coding priorities
 
 Build in this order:
 
@@ -525,7 +590,7 @@ Build in this order:
 
 Do not implement Claude/Codex importers, worktree backend, workflow engine, FleetView, remote workers, or npm release before the relevant milestone.
 
-## 19. Documentation rules
+## 20. Documentation rules
 
 Documentation must describe what is true now, not what might exist later.
 
@@ -539,7 +604,7 @@ Use precise language:
 
 When adding or changing architecture claims, update `docs/00-source-basis.md` if the claim depends on external facts.
 
-## 20. Secrets, privacy, and chain-of-thought
+## 21. Secrets, privacy, and chain-of-thought
 
 Never commit:
 
@@ -551,7 +616,7 @@ Never commit:
 
 If a secret is accidentally exposed, stop, notify the owner in the PR or issue, and do not continue until directed.
 
-## 21. Handling uncertainty and blockers
+## 22. Handling uncertainty and blockers
 
 Stop and ask for owner direction when:
 
@@ -563,20 +628,26 @@ Stop and ask for owner direction when:
 6. CI fails for reasons unrelated to the PR.
 7. A release, npm publish, or irreversible repo setting change is required.
 
-When blocked, leave a concise issue or PR comment with:
+When blocked, leave a concise issue or PR comment from a body file with:
 
 ```markdown
-Blocked.
+### Blocked
 
-Reason: <specific reason>
-Evidence: <command output, file path, or link>
-Options:
+**Reason**
+<specific reason>
+
+**Evidence**
+- <command output, file path, or link>
+
+**Options**
 1. <option>
 2. <option>
-Recommended: <one recommendation>
+
+**Recommended**
+<one recommendation>
 ```
 
-## 22. Definition of done
+## 23. Definition of done
 
 A PR is ready for owner review only when:
 
@@ -591,8 +662,9 @@ A PR is ready for owner review only when:
 9. Integration or simulated flow tests are added where the issue calls for behavior changes.
 10. No logs or artifacts include secrets, API keys, or hidden chain-of-thought content.
 11. Local validation and CI pass, or unavailable checks are explicitly documented.
-12. All valid `codex-connector bot` findings are fixed or answered with evidence.
-13. The latest bot result after the latest commit is `+1`.
-14. Project status is `In Review` or the inability to update it is documented.
+12. The pre-PR verifier subagent ran with `ponytail-review`, and every valid finding is fixed or documented; or an owner-approved fallback is documented because the skill was unavailable.
+13. All valid `codex-connector bot` findings are fixed or answered with evidence.
+14. The latest bot result after the latest commit is `+1`.
+15. Project status is `In Review` or the inability to update it is documented.
 
 Do not mark an issue complete before its PR is merged.

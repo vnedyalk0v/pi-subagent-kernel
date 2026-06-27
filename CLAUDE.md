@@ -1,6 +1,8 @@
 # Claude Code Instructions
 
-Read `AGENTS.md` first. It is the source of truth for repository-level engineering rules.
+Read [AGENTS.md](./AGENTS.md) first. It is the source of truth for repository-level engineering rules, including issue, PR, milestone, label, project-board, and review-loop requirements.
+
+Project identity: **Pi SubAgent Kernel** (`pi-subagent-kernel`).
 
 Claude-specific reminders:
 

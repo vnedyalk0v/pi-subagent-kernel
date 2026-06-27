@@ -1,4 +1,4 @@
-# pi-subagent-kernel — Documentation Pack
+# Pi SubAgent Kernel
 
 This repository is intended to be the starting documentation set for building a better SubAgents implementation for the Pi Coding Agent.
 
