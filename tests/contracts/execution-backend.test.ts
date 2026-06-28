@@ -22,6 +22,7 @@ const validAgent = {
 };
 
 const validSpawnInput = {
+  runId: "run_mock_1",
   agent: validAgent,
   task: "Inspect the contracts.",
   context: {
@@ -43,13 +44,12 @@ const validSpawnInput = {
 
 class MockExecutionBackend implements ExecutionBackend {
   readonly id = "sdk" as const;
-  #nextId = 1;
   #runs = new Map<string, RunEnvelope>();
 
   async spawn(input: SpawnInput): Promise<RunStatus> {
     const normalized = parseSpawnInput(input);
     const envelope = parseRunEnvelope({
-      id: `run_mock_${this.#nextId++}`,
+      id: normalized.runId,
       agent: normalized.agent.name,
       runtime: this.id,
       contextMode: normalized.context.mode,
@@ -114,6 +114,7 @@ describe("ExecutionBackend", () => {
   it("normalizes spawn input with agent, task, context, policy, and output requirements", () => {
     const input = parseSpawnInput(validSpawnInput);
 
+    assert.equal(input.runId, "run_mock_1");
     assert.equal(input.agent.name, "scout");
     assert.equal(input.task, "Inspect the contracts.");
     assert.equal(input.context.mode, "summary");
@@ -173,6 +174,18 @@ describe("ExecutionBackend", () => {
     );
   });
 
+  it("rejects inherited spawn input fields", () => {
+    const input = Object.create(validSpawnInput) as Record<string, unknown>;
+    input.task = "Inspect only.";
+
+    const result = validateSpawnInput(input);
+
+    assert.equal(result.ok, false);
+    if (!result.ok) {
+      assert.deepEqual(result.issues.map((issue) => issue.path), ["runId", "agent", "context", "policy", "limits", "output"]);
+    }
+  });
+
   it("validates run status without allowing unresolved auto runtime", () => {
     const status = parseRunStatus({
       id: "run_mock_1",
@@ -184,6 +197,17 @@ describe("ExecutionBackend", () => {
 
     assert.equal(status.status, "running");
     assert.throws(() => parseRunStatus({ ...status, runtime: "auto" }), /runtime must be one of/);
+  });
+
+  it("allows queued run status before runtime selection", () => {
+    const status = parseRunStatus({ id: "run_mock_1", agent: "scout", status: "queued" });
+
+    assert.equal(status.status, "queued");
+    assert.equal(status.runtime, undefined);
+    assert.throws(
+      () => parseRunStatus({ id: "run_mock_1", agent: "scout", status: "starting" }),
+      /runtime is required once a run leaves queued/,
+    );
   });
 
   it("rejects terminal run statuses without start and end timestamps", () => {
@@ -205,7 +229,7 @@ describe("ExecutionBackend", () => {
     assert.equal(result.agent, "scout");
     assert.deepEqual(result.filesRead, ["README.md"]);
 
-    const cancellable = await backend.spawn(parseSpawnInput(validSpawnInput));
+    const cancellable = await backend.spawn(parseSpawnInput({ ...validSpawnInput, runId: "run_mock_2" }));
     const cancelled = await backend.cancel(cancellable.id, "not needed");
     assert.equal(cancelled.status, "cancelled");
     assert.equal((await backend.result(cancellable.id)).status, "cancelled");

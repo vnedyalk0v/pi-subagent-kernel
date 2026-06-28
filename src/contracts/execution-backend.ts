@@ -12,7 +12,7 @@ import { validatePermissionPolicy, type PermissionPolicy } from "./permission-po
 import { RUN_ENVELOPE_RUNTIMES, type RunEnvelope, type RunEnvelopeRuntime } from "./run-envelope.ts";
 import { RUN_STATES, type RunState } from "./run-state.ts";
 
-const TOP_LEVEL_SPAWN_INPUT_KEYS = new Set(["agent", "task", "context", "policy", "limits", "output"]);
+const TOP_LEVEL_SPAWN_INPUT_KEYS = new Set(["runId", "agent", "task", "context", "policy", "limits", "output"]);
 const SPAWN_CONTEXT_KEYS = new Set(["mode", "parentRunId", "summary", "files"]);
 const SPAWN_LIMITS_KEYS = new Set(["maxRuntimeSec"]);
 const SPAWN_OUTPUT_KEYS = new Set(["mode", "schema", "artifactPath"]);
@@ -38,6 +38,7 @@ export interface SpawnOutputRequirements {
 }
 
 export interface SpawnInput {
+  runId: string;
   agent: AgentDefinition;
   task: string;
   context: SpawnContext;
@@ -49,7 +50,7 @@ export interface SpawnInput {
 export interface RunStatus {
   id: string;
   agent: string;
-  runtime: ExecutionBackendId;
+  runtime?: ExecutionBackendId;
   status: RunState;
   startedAt?: string;
   endedAt?: string;
@@ -92,18 +93,19 @@ export function validateSpawnInput(input: unknown): ValidationResult<SpawnInput>
 
   rejectUnknownKeys(input, TOP_LEVEL_SPAWN_INPUT_KEYS, "", issues);
 
-  const agent = readAgentDefinition(input.agent, issues);
+  const runId = readRequiredString(input, "runId", issues);
+  const agent = readAgentDefinition(readOwn(input, "agent"), issues);
   const task = readRequiredString(input, "task", issues);
-  const context = readSpawnContext(input.context, issues);
-  const policy = readPermissionPolicy(input.policy, issues);
-  const limits = readSpawnLimits(input.limits, issues);
-  const output = readSpawnOutput(input.output, issues);
+  const context = readSpawnContext(readOwn(input, "context"), issues);
+  const policy = readPermissionPolicy(readOwn(input, "policy"), issues);
+  const limits = readSpawnLimits(readOwn(input, "limits"), issues);
+  const output = readSpawnOutput(readOwn(input, "output"), issues);
 
-  if (issues.length > 0 || !agent || !task || !context || !policy || !limits || !output) {
+  if (issues.length > 0 || !runId || !agent || !task || !context || !policy || !limits || !output) {
     return fail(issues);
   }
 
-  return { ok: true, value: deepFreeze({ agent, task, context, policy, limits, output }) };
+  return { ok: true, value: deepFreeze({ runId, agent, task, context, policy, limits, output }) };
 }
 
 export function parseRunStatus(input: unknown): RunStatus {
@@ -125,20 +127,24 @@ export function validateRunStatus(input: unknown): ValidationResult<RunStatus> {
 
   const id = readRequiredString(input, "id", issues);
   const agent = readRequiredString(input, "agent", issues);
-  const runtime = readRequiredEnum(input.runtime, RUN_ENVELOPE_RUNTIMES, "runtime", issues);
-  const status = readRequiredEnum(input.status, RUN_STATES, "status", issues);
-  const startedAt = readOptionalIsoDate(input.startedAt, "startedAt", issues);
-  const endedAt = readOptionalIsoDate(input.endedAt, "endedAt", issues);
-  const summary = readOptionalString(input.summary, "summary", issues);
+  const hasRuntime = hasOwn(input, "runtime");
+  const runtime = hasRuntime ? readRequiredEnum(readOwn(input, "runtime"), RUN_ENVELOPE_RUNTIMES, "runtime", issues) : undefined;
+  const status = readRequiredEnum(readOwn(input, "status"), RUN_STATES, "status", issues);
+  const startedAt = readOptionalIsoDate(readOwn(input, "startedAt"), "startedAt", issues);
+  const endedAt = readOptionalIsoDate(readOwn(input, "endedAt"), "endedAt", issues);
+  const summary = readOptionalString(readOwn(input, "summary"), "summary", issues);
 
   if (startedAt && endedAt && Date.parse(endedAt) < Date.parse(startedAt)) {
     issues.push({ path: "endedAt", message: "endedAt must not be earlier than startedAt." });
+  }
+  if (status && status !== "queued" && !hasRuntime) {
+    issues.push({ path: "runtime", message: "runtime is required once a run leaves queued." });
   }
   if (status && isTerminalStatus(status) && (!startedAt || !endedAt)) {
     issues.push({ path: "endedAt", message: `${status} run statuses require startedAt and endedAt.` });
   }
 
-  if (issues.length > 0 || !id || !agent || !runtime || !status) {
+  if (issues.length > 0 || !id || !agent || !status) {
     return fail(issues);
   }
 
@@ -147,7 +153,7 @@ export function validateRunStatus(input: unknown): ValidationResult<RunStatus> {
     value: deepFreeze({
       id,
       agent,
-      runtime,
+      ...(runtime !== undefined ? { runtime } : {}),
       status,
       ...(startedAt !== undefined ? { startedAt } : {}),
       ...(endedAt !== undefined ? { endedAt } : {}),
@@ -206,13 +212,13 @@ function readSpawnContext(value: unknown, issues: ValidationIssue[]): SpawnConte
 
   rejectUnknownKeys(value, SPAWN_CONTEXT_KEYS, "context", issues);
 
-  const mode = readRequiredEnum(value.mode, CONTEXT_INHERITANCE_MODES, "context.mode", issues);
+  const mode = readRequiredEnum(readOwn(value, "mode"), CONTEXT_INHERITANCE_MODES, "context.mode", issues);
   if (mode === "full") {
     issues.push({ path: "context.mode", message: "context.mode full requires explicit policy approval before backend spawn." });
   }
-  const parentRunId = hasOwn(value, "parentRunId") ? readNullableString(value.parentRunId, "context.parentRunId", issues) : undefined;
-  const summary = readOptionalString(value.summary, "context.summary", issues);
-  const files = hasOwn(value, "files") ? readStringList(value.files, "context.files", issues) : [];
+  const parentRunId = hasOwn(value, "parentRunId") ? readNullableString(readOwn(value, "parentRunId"), "context.parentRunId", issues) : undefined;
+  const summary = readOptionalString(readOwn(value, "summary"), "context.summary", issues);
+  const files = hasOwn(value, "files") ? readStringList(readOwn(value, "files"), "context.files", issues) : [];
 
   return mode
     ? {
@@ -236,7 +242,7 @@ function readSpawnLimits(value: unknown, issues: ValidationIssue[]): SpawnLimits
 
   rejectUnknownKeys(value, SPAWN_LIMITS_KEYS, "limits", issues);
 
-  const maxRuntimeSec = readPositiveInteger(value.maxRuntimeSec, "limits.maxRuntimeSec", issues);
+  const maxRuntimeSec = readPositiveInteger(readOwn(value, "maxRuntimeSec"), "limits.maxRuntimeSec", issues);
   return maxRuntimeSec !== undefined ? { maxRuntimeSec } : undefined;
 }
 
@@ -252,9 +258,9 @@ function readSpawnOutput(value: unknown, issues: ValidationIssue[]): SpawnOutput
 
   rejectUnknownKeys(value, SPAWN_OUTPUT_KEYS, "output", issues);
 
-  const mode = readRequiredEnum(value.mode, RESULT_MODES, "output.mode", issues);
-  const schema = readOutputSchema(value.schema, "output.schema", issues);
-  const artifactPath = readOptionalString(value.artifactPath, "output.artifactPath", issues);
+  const mode = readRequiredEnum(readOwn(value, "mode"), RESULT_MODES, "output.mode", issues);
+  const schema = readOutputSchema(readOwn(value, "schema"), "output.schema", issues);
+  const artifactPath = readOptionalString(readOwn(value, "artifactPath"), "output.artifactPath", issues);
 
   return mode
     ? {
@@ -380,6 +386,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function hasOwn(record: Record<string, unknown>, key: string): boolean {
   return Object.prototype.hasOwnProperty.call(record, key);
+}
+
+function readOwn(record: Record<string, unknown>, key: string): unknown {
+  return hasOwn(record, key) ? record[key] : undefined;
 }
 
 function deepFreeze<T>(value: T): T {
