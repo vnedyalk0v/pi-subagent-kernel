@@ -12,7 +12,7 @@ Read this when work cannot safely continue.
 6. CI fails for reasons unrelated to the PR.
 7. A release, npm publish, irreversible repository setting, or credential change is required.
 8. `ponytail-review` is unavailable before PR open.
-9. Automatic Codex review is expected but does not appear after a reasonable polling window.
+9. Automatic Codex review is expected, no Codex comment/review/check/reaction/timeline signal appears after the Codex polling window, and no 👀 / in-progress signal is visible.
 10. A bot suggestion appears unsafe.
 
 ## Blocker comment requirements
@@ -52,3 +52,5 @@ gh pr comment <pr-number> --body-file /tmp/blocker-comment.md
 ## Project status
 
 If project access is available, set status to `Blocked`. If unavailable, mention the intended project status in the blocker comment.
+
+Do not set `Blocked` for a PR that is merely waiting on Codex while an 👀 / in-progress signal exists; leave the issue and PR `In Review` and keep polling.
