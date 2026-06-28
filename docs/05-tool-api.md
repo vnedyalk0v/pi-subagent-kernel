@@ -132,10 +132,10 @@ If `id` is omitted, return active and recent runs.
       "startedAt": "2026-06-26T10:00:00.000Z",
       "elapsedMs": 4312,
       "summary": "Searching auth call sites",
-      "usage": {
+      "cost": {
+        "estimatedUsd": 0.08,
         "inputTokens": 12000,
-        "outputTokens": 1200,
-        "estimatedCostUsd": 0.08
+        "outputTokens": 1200
       }
     }
   ]
@@ -214,6 +214,7 @@ MVP should not implement steering unless the chosen backend supports it reliably
   "parentRunId": null,
   "agent": "reviewer",
   "runtime": "subprocess",
+  "contextMode": "summary",
   "status": "completed",
   "startedAt": "2026-06-26T10:00:00.000Z",
   "endedAt": "2026-06-26T10:03:00.000Z",
@@ -239,12 +240,12 @@ MVP should not implement steering unless the chosen backend supports it reliably
   "filesChanged": [],
   "commandsRun": [],
   "testsRun": [],
-  "usage": {
+  "cost": {
+    "estimatedUsd": 0.42,
     "inputTokens": 12431,
     "outputTokens": 2210,
     "cacheReadTokens": 0,
-    "cacheWriteTokens": 0,
-    "estimatedCostUsd": 0.42
+    "cacheWriteTokens": 0
   },
   "confidence": 0.82,
   "nextActions": ["Add concurrency regression test"]
@@ -258,7 +259,28 @@ MVP should not implement steering unless the chosen backend supports it reliably
   "id": "run_01J...",
   "agent": "reviewer",
   "runtime": "subprocess",
+  "contextMode": "summary",
   "status": "failed",
+  "startedAt": "2026-06-26T10:00:00.000Z",
+  "endedAt": "2026-06-26T10:30:01.000Z",
+  "summary": "Reviewer timed out before producing a valid result.",
+  "findings": [],
+  "artifacts": [
+    {
+      "name": "stderr.txt",
+      "kind": "text",
+      "path": "runs/run_01J/artifacts/stderr.txt"
+    }
+  ],
+  "filesRead": [],
+  "filesChanged": [],
+  "commandsRun": [],
+  "testsRun": [],
+  "cost": {
+    "estimatedUsd": null
+  },
+  "confidence": 0,
+  "nextActions": [],
   "error": {
     "code": "timeout",
     "message": "Subagent exceeded maxRuntimeSec=1800.",
@@ -266,15 +288,7 @@ MVP should not implement steering unless the chosen backend supports it reliably
     "details": {
       "elapsedMs": 1801000
     }
-  },
-  "summary": "Reviewer timed out before producing a valid result.",
-  "artifacts": [
-    {
-      "name": "stderr.txt",
-      "kind": "text",
-      "path": "runs/run_01J/artifacts/stderr.txt"
-    }
-  ]
+  }
 }
 ```
 
