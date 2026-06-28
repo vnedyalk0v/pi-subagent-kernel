@@ -1,8 +1,6 @@
 import {
   CONTEXT_INHERITANCE_MODES,
-  RUNTIME_BACKENDS,
   type ContextInheritanceMode,
-  type RuntimeBackend,
   type ValidationIssue,
   type ValidationResult,
 } from "./agent-definition.ts";
@@ -34,6 +32,9 @@ const FINDING_KEYS = new Set(["severity", "title", "file", "line", "evidence", "
 const ARTIFACT_KEYS = new Set(["name", "kind", "path", "uri", "bytes", "sha256"]);
 const COST_KEYS = new Set(["estimatedUsd", "inputTokens", "outputTokens", "cacheReadTokens", "cacheWriteTokens"]);
 const ERROR_KEYS = new Set(["code", "message", "retryable", "details"]);
+
+export const RUN_ENVELOPE_RUNTIMES = Object.freeze(["sdk", "subprocess", "worktree", "mux", "remote"] as const);
+export type RunEnvelopeRuntime = (typeof RUN_ENVELOPE_RUNTIMES)[number];
 
 export const FINDING_SEVERITIES = Object.freeze(["info", "low", "medium", "high", "critical"] as const);
 export type FindingSeverity = (typeof FINDING_SEVERITIES)[number];
@@ -88,7 +89,7 @@ export interface RunEnvelope {
   id: string;
   parentRunId?: string | null;
   agent: string;
-  runtime: RuntimeBackend;
+  runtime: RunEnvelopeRuntime;
   contextMode: ContextInheritanceMode;
   status: RunState;
   startedAt?: string;
@@ -136,7 +137,7 @@ export function validateRunEnvelope(input: unknown): ValidationResult<RunEnvelop
   const id = readRequiredString(input, "id", issues);
   const parentRunId = hasOwn(input, "parentRunId") ? readNullableString(input.parentRunId, "parentRunId", issues) : undefined;
   const agent = readRequiredString(input, "agent", issues);
-  const runtime = readRequiredEnum(input.runtime, RUNTIME_BACKENDS, "runtime", issues);
+  const runtime = readRequiredEnum(input.runtime, RUN_ENVELOPE_RUNTIMES, "runtime", issues);
   const contextMode = readRequiredEnum(input.contextMode, CONTEXT_INHERITANCE_MODES, "contextMode", issues);
   const status = readRequiredEnum(input.status, RUN_STATES, "status", issues);
   const startedAt = readOptionalIsoDate(input.startedAt, "startedAt", issues);
@@ -153,11 +154,20 @@ export function validateRunEnvelope(input: unknown): ValidationResult<RunEnvelop
   const nextActions = readRequiredStringList(input.nextActions, "nextActions", issues);
   const error = hasOwn(input, "error") ? readError(input.error, issues) : undefined;
 
+  if (id && parentRunId === id) {
+    issues.push({ path: "parentRunId", message: "parentRunId must not equal id." });
+  }
   if (status && isTerminalStatus(status) && (!startedAt || !endedAt)) {
     issues.push({ path: "endedAt", message: `${status} run envelopes require startedAt and endedAt.` });
   }
+  if (startedAt && endedAt && Date.parse(endedAt) < Date.parse(startedAt)) {
+    issues.push({ path: "endedAt", message: "endedAt must not be earlier than startedAt." });
+  }
   if ((status === "failed" || status === "expired") && !error) {
     issues.push({ path: "error", message: `${status} run envelopes require a structured error.` });
+  }
+  if (status && status !== "failed" && status !== "expired" && error) {
+    issues.push({ path: "error", message: "error is allowed only for failed or expired run envelopes." });
   }
 
   if (issues.length > 0 || !id || !agent || !runtime || !contextMode || !status || !summary || !cost || confidence === undefined) {

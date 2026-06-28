@@ -103,6 +103,17 @@ describe("RunEnvelope", () => {
     assert.throws(() => parseRunEnvelope(withoutRuntime), /runtime is required/);
   });
 
+  it("rejects unresolved auto runtime", () => {
+    assert.throws(() => parseRunEnvelope({ ...validEnvelope, runtime: "auto" }), /runtime must be one of/);
+  });
+
+  it("rejects self-parented runs", () => {
+    assert.throws(
+      () => parseRunEnvelope({ ...validEnvelope, parentRunId: validEnvelope.id }),
+      /parentRunId must not equal id/,
+    );
+  });
+
   it("rejects missing context mode", () => {
     const { contextMode: _contextMode, ...withoutContextMode } = validEnvelope;
 
@@ -124,6 +135,18 @@ describe("RunEnvelope", () => {
     assert.throws(
       () => parseRunEnvelope({ ...validEnvelope, endedAt: "2026-02-30T10:00:00.000Z" }),
       /endedAt must be an ISO timestamp/,
+    );
+  });
+
+  it("rejects terminal envelopes with reversed timestamps", () => {
+    assert.throws(
+      () =>
+        parseRunEnvelope({
+          ...validEnvelope,
+          startedAt: "2026-06-26T10:03:00.000Z",
+          endedAt: "2026-06-26T10:00:00.000Z",
+        }),
+      /endedAt must not be earlier than startedAt/,
     );
   });
 
@@ -151,6 +174,17 @@ describe("RunEnvelope", () => {
     });
 
     assert.equal(envelope.error?.code, "timeout");
+  });
+
+  it("rejects errors on non-error statuses", () => {
+    assert.throws(
+      () =>
+        parseRunEnvelope({
+          ...validEnvelope,
+          error: { code: "unexpected", message: "Unexpected failure.", retryable: false },
+        }),
+      /error is allowed only for failed or expired/,
+    );
   });
 
   it("rejects unknown fields", () => {
