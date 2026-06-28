@@ -31,6 +31,9 @@ const validSpawnInput = {
     files: ["README.md"],
   },
   policy: {},
+  limits: {
+    maxRuntimeSec: 1800,
+  },
   output: {
     mode: "json",
     schema: "inspection_v1",
@@ -116,6 +119,7 @@ describe("ExecutionBackend", () => {
     assert.equal(input.context.mode, "summary");
     assert.deepEqual(input.context.files, ["README.md"]);
     assert.equal(input.policy.maxDepth, 1);
+    assert.equal(input.limits.maxRuntimeSec, 1800);
     assert.equal(input.output.mode, "json");
     assert.equal(input.output.schema, "inspection_v1");
   });
@@ -143,6 +147,23 @@ describe("ExecutionBackend", () => {
     }
   });
 
+  it("rejects full context until policy approval is represented", () => {
+    assert.throws(
+      () => parseSpawnInput({ ...validSpawnInput, context: { ...validSpawnInput.context, mode: "full" } }),
+      /context\.mode full requires explicit policy approval/,
+    );
+  });
+
+  it("requires effective runtime limits at the spawn boundary", () => {
+    const { limits: _limits, ...withoutLimits } = validSpawnInput;
+
+    assert.throws(
+      () => parseSpawnInput(withoutLimits),
+      (error) => error instanceof ExecutionBackendValidationError && /limits is required/.test(error.message),
+    );
+    assert.throws(() => parseSpawnInput({ ...validSpawnInput, limits: { maxRuntimeSec: 0 } }), /positive integer/);
+  });
+
   it("requires output requirements at the spawn boundary", () => {
     const { output: _output, ...withoutOutput } = validSpawnInput;
 
@@ -163,6 +184,13 @@ describe("ExecutionBackend", () => {
 
     assert.equal(status.status, "running");
     assert.throws(() => parseRunStatus({ ...status, runtime: "auto" }), /runtime must be one of/);
+  });
+
+  it("rejects terminal run statuses without start and end timestamps", () => {
+    assert.throws(
+      () => parseRunStatus({ id: "run_mock_1", agent: "scout", runtime: "sdk", status: "completed" }),
+      /completed run statuses require startedAt and endedAt/,
+    );
   });
 
   it("lets mock backends share spawn, status, result, and cancel around RunEnvelope", async () => {

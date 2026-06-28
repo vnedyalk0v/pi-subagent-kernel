@@ -12,8 +12,9 @@ import { validatePermissionPolicy, type PermissionPolicy } from "./permission-po
 import { RUN_ENVELOPE_RUNTIMES, type RunEnvelope, type RunEnvelopeRuntime } from "./run-envelope.ts";
 import { RUN_STATES, type RunState } from "./run-state.ts";
 
-const TOP_LEVEL_SPAWN_INPUT_KEYS = new Set(["agent", "task", "context", "policy", "output"]);
+const TOP_LEVEL_SPAWN_INPUT_KEYS = new Set(["agent", "task", "context", "policy", "limits", "output"]);
 const SPAWN_CONTEXT_KEYS = new Set(["mode", "parentRunId", "summary", "files"]);
+const SPAWN_LIMITS_KEYS = new Set(["maxRuntimeSec"]);
 const SPAWN_OUTPUT_KEYS = new Set(["mode", "schema", "artifactPath"]);
 const RUN_STATUS_KEYS = new Set(["id", "agent", "runtime", "status", "startedAt", "endedAt", "summary"]);
 
@@ -24,6 +25,10 @@ export interface SpawnContext {
   parentRunId?: string | null;
   summary?: string;
   files: string[];
+}
+
+export interface SpawnLimits {
+  maxRuntimeSec: number;
 }
 
 export interface SpawnOutputRequirements {
@@ -37,6 +42,7 @@ export interface SpawnInput {
   task: string;
   context: SpawnContext;
   policy: PermissionPolicy;
+  limits: SpawnLimits;
   output: SpawnOutputRequirements;
 }
 
@@ -90,13 +96,14 @@ export function validateSpawnInput(input: unknown): ValidationResult<SpawnInput>
   const task = readRequiredString(input, "task", issues);
   const context = readSpawnContext(input.context, issues);
   const policy = readPermissionPolicy(input.policy, issues);
+  const limits = readSpawnLimits(input.limits, issues);
   const output = readSpawnOutput(input.output, issues);
 
-  if (issues.length > 0 || !agent || !task || !context || !policy || !output) {
+  if (issues.length > 0 || !agent || !task || !context || !policy || !limits || !output) {
     return fail(issues);
   }
 
-  return { ok: true, value: deepFreeze({ agent, task, context, policy, output }) };
+  return { ok: true, value: deepFreeze({ agent, task, context, policy, limits, output }) };
 }
 
 export function parseRunStatus(input: unknown): RunStatus {
@@ -126,6 +133,9 @@ export function validateRunStatus(input: unknown): ValidationResult<RunStatus> {
 
   if (startedAt && endedAt && Date.parse(endedAt) < Date.parse(startedAt)) {
     issues.push({ path: "endedAt", message: "endedAt must not be earlier than startedAt." });
+  }
+  if (status && isTerminalStatus(status) && (!startedAt || !endedAt)) {
+    issues.push({ path: "endedAt", message: `${status} run statuses require startedAt and endedAt.` });
   }
 
   if (issues.length > 0 || !id || !agent || !runtime || !status) {
@@ -197,6 +207,9 @@ function readSpawnContext(value: unknown, issues: ValidationIssue[]): SpawnConte
   rejectUnknownKeys(value, SPAWN_CONTEXT_KEYS, "context", issues);
 
   const mode = readRequiredEnum(value.mode, CONTEXT_INHERITANCE_MODES, "context.mode", issues);
+  if (mode === "full") {
+    issues.push({ path: "context.mode", message: "context.mode full requires explicit policy approval before backend spawn." });
+  }
   const parentRunId = hasOwn(value, "parentRunId") ? readNullableString(value.parentRunId, "context.parentRunId", issues) : undefined;
   const summary = readOptionalString(value.summary, "context.summary", issues);
   const files = hasOwn(value, "files") ? readStringList(value.files, "context.files", issues) : [];
@@ -209,6 +222,22 @@ function readSpawnContext(value: unknown, issues: ValidationIssue[]): SpawnConte
         files,
       }
     : undefined;
+}
+
+function readSpawnLimits(value: unknown, issues: ValidationIssue[]): SpawnLimits | undefined {
+  if (value === undefined) {
+    issues.push({ path: "limits", message: "limits is required." });
+    return undefined;
+  }
+  if (!isRecord(value)) {
+    issues.push({ path: "limits", message: "limits must be an object." });
+    return undefined;
+  }
+
+  rejectUnknownKeys(value, SPAWN_LIMITS_KEYS, "limits", issues);
+
+  const maxRuntimeSec = readPositiveInteger(value.maxRuntimeSec, "limits.maxRuntimeSec", issues);
+  return maxRuntimeSec !== undefined ? { maxRuntimeSec } : undefined;
 }
 
 function readSpawnOutput(value: unknown, issues: ValidationIssue[]): SpawnOutputRequirements | undefined {
@@ -297,6 +326,14 @@ function readRequiredEnum<const T extends readonly string[]>(
   return value;
 }
 
+function readPositiveInteger(value: unknown, path: string, issues: ValidationIssue[]): number | undefined {
+  if (typeof value !== "number" || !Number.isInteger(value) || value <= 0) {
+    issues.push({ path, message: `${path} is required and must be a positive integer.` });
+    return undefined;
+  }
+  return value;
+}
+
 function readOutputSchema(value: unknown, path: string, issues: ValidationIssue[]): string | Record<string, unknown> | undefined {
   if (value === undefined) {
     return undefined;
@@ -327,6 +364,10 @@ function readOptionalIsoDate(value: unknown, path: string, issues: ValidationIss
     return undefined;
   }
   return parsed;
+}
+
+function isTerminalStatus(status: RunState): boolean {
+  return status === "completed" || status === "failed" || status === "cancelled" || status === "expired";
 }
 
 function prefixIssues(prefix: string, issues: ValidationIssue[]): ValidationIssue[] {
