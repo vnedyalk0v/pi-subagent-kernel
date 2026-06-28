@@ -81,21 +81,24 @@ export function validatePermissionPolicy(input: unknown = {}): ValidationResult<
 
   rejectUnknownKeys(input, TOP_LEVEL_PERMISSION_POLICY_KEYS, "", issues);
 
-  const maxDepth = readPositiveInteger(input.maxDepth, "maxDepth", issues) ?? DEFAULT_PERMISSION_POLICY.maxDepth;
-  const maxThreads = readPositiveInteger(input.maxThreads, "maxThreads", issues) ?? DEFAULT_PERMISSION_POLICY.maxThreads;
-  const nestedSubagents = readBoolean(input.nestedSubagents, "nestedSubagents", issues) ?? DEFAULT_PERMISSION_POLICY.nestedSubagents;
-  const filesystem = readEnum(input.filesystem, FILESYSTEM_POLICIES, "filesystem", issues) ?? DEFAULT_PERMISSION_POLICY.filesystem;
-  const network = readEnum(input.network, NETWORK_POLICIES, "network", issues) ?? DEFAULT_PERMISSION_POLICY.network;
-  const shell = readEnum(input.shell, SHELL_POLICIES, "shell", issues) ?? DEFAULT_PERMISSION_POLICY.shell;
+  const maxDepth = readPositiveInteger(readOwn(input, "maxDepth"), "maxDepth", issues) ?? DEFAULT_PERMISSION_POLICY.maxDepth;
+  const maxThreads = readPositiveInteger(readOwn(input, "maxThreads"), "maxThreads", issues) ?? DEFAULT_PERMISSION_POLICY.maxThreads;
+  const nestedSubagents =
+    readBoolean(readOwn(input, "nestedSubagents"), "nestedSubagents", issues) ?? DEFAULT_PERMISSION_POLICY.nestedSubagents;
+  const filesystem =
+    readEnum(readOwn(input, "filesystem"), FILESYSTEM_POLICIES, "filesystem", issues) ?? DEFAULT_PERMISSION_POLICY.filesystem;
+  const network = readEnum(readOwn(input, "network"), NETWORK_POLICIES, "network", issues) ?? DEFAULT_PERMISSION_POLICY.network;
+  const shell = readEnum(readOwn(input, "shell"), SHELL_POLICIES, "shell", issues) ?? DEFAULT_PERMISSION_POLICY.shell;
   const childExtensions =
-    readEnum(input.childExtensions, CHILD_EXTENSION_POLICIES, "childExtensions", issues) ??
+    readEnum(readOwn(input, "childExtensions"), CHILD_EXTENSION_POLICIES, "childExtensions", issues) ??
     DEFAULT_PERMISSION_POLICY.childExtensions;
-  const mcpServers = readEnum(input.mcpServers, MCP_SERVER_POLICIES, "mcpServers", issues) ?? DEFAULT_PERMISSION_POLICY.mcpServers;
+  const mcpServers =
+    readEnum(readOwn(input, "mcpServers"), MCP_SERVER_POLICIES, "mcpServers", issues) ?? DEFAULT_PERMISSION_POLICY.mcpServers;
   const projectAgentsRequireTrust =
-    readBoolean(input.projectAgentsRequireTrust, "projectAgentsRequireTrust", issues) ??
+    readBoolean(readOwn(input, "projectAgentsRequireTrust"), "projectAgentsRequireTrust", issues) ??
     DEFAULT_PERMISSION_POLICY.projectAgentsRequireTrust;
   const projectAgentsRequireConfirmation =
-    readBoolean(input.projectAgentsRequireConfirmation, "projectAgentsRequireConfirmation", issues) ??
+    readBoolean(readOwn(input, "projectAgentsRequireConfirmation"), "projectAgentsRequireConfirmation", issues) ??
     DEFAULT_PERMISSION_POLICY.projectAgentsRequireConfirmation;
 
   return issues.length > 0
@@ -157,6 +160,10 @@ function readEnum<const T extends readonly string[]>(
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function readOwn(record: Record<string, unknown>, key: string): unknown {
+  return Object.prototype.hasOwnProperty.call(record, key) ? record[key] : undefined;
 }
 
 function deepFreeze<T>(value: T): T {

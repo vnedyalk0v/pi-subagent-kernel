@@ -95,6 +95,15 @@ describe("PermissionPolicy", () => {
     assert.throws(() => parsePermissionPolicy({ fileSystem: "read-only" }), /fileSystem: Unknown field "fileSystem"/);
   });
 
+  it("ignores inherited policy fields", () => {
+    const input = Object.create({ maxDepth: 99, filesystem: "unrestricted", network: "allow" }) as Record<string, unknown>;
+    const policy = parsePermissionPolicy(input);
+
+    assert.equal(policy.maxDepth, 1);
+    assert.equal(policy.filesystem, "read-only");
+    assert.equal(policy.network, "none");
+  });
+
   it("throws typed validation errors", () => {
     assert.throws(
       () => parsePermissionPolicy({ network: "internet" }),
