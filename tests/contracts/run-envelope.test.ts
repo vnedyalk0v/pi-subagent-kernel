@@ -14,6 +14,7 @@ const validEnvelope = {
   parentRunId: null,
   agent: "reviewer",
   runtime: "subprocess",
+  contextMode: "summary",
   status: "completed",
   startedAt: "2026-06-26T10:00:00.000Z",
   endedAt: "2026-06-26T10:03:00.000Z",
@@ -96,8 +97,34 @@ describe("RunEnvelope", () => {
     }
   });
 
+  it("rejects missing runtime backend", () => {
+    const { runtime: _runtime, ...withoutRuntime } = validEnvelope;
+
+    assert.throws(() => parseRunEnvelope(withoutRuntime), /runtime is required/);
+  });
+
+  it("rejects missing context mode", () => {
+    const { contextMode: _contextMode, ...withoutContextMode } = validEnvelope;
+
+    assert.throws(() => parseRunEnvelope(withoutContextMode), /contextMode is required/);
+  });
+
   it("rejects invalid status values", () => {
     assert.throws(() => parseRunEnvelope({ ...validEnvelope, status: "stale" }), /status must be one of/);
+  });
+
+  it("rejects terminal envelopes without timestamps", () => {
+    const { startedAt: _startedAt, endedAt: _endedAt, ...withoutTimestamps } = validEnvelope;
+
+    assert.throws(() => parseRunEnvelope(withoutTimestamps), /completed run envelopes require startedAt and endedAt/);
+  });
+
+  it("rejects non-ISO or impossible timestamps", () => {
+    assert.throws(() => parseRunEnvelope({ ...validEnvelope, startedAt: "1" }), /startedAt must be an ISO timestamp/);
+    assert.throws(
+      () => parseRunEnvelope({ ...validEnvelope, endedAt: "2026-02-30T10:00:00.000Z" }),
+      /endedAt must be an ISO timestamp/,
+    );
   });
 
   it("rejects invalid confidence range", () => {

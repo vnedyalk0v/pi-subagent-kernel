@@ -1,4 +1,11 @@
-import { RUNTIME_BACKENDS, type RuntimeBackend, type ValidationIssue, type ValidationResult } from "./agent-definition.ts";
+import {
+  CONTEXT_INHERITANCE_MODES,
+  RUNTIME_BACKENDS,
+  type ContextInheritanceMode,
+  type RuntimeBackend,
+  type ValidationIssue,
+  type ValidationResult,
+} from "./agent-definition.ts";
 import { RUN_STATES, type RunState } from "./run-state.ts";
 
 const TOP_LEVEL_RUN_ENVELOPE_KEYS = new Set([
@@ -6,6 +13,7 @@ const TOP_LEVEL_RUN_ENVELOPE_KEYS = new Set([
   "parentRunId",
   "agent",
   "runtime",
+  "contextMode",
   "status",
   "startedAt",
   "endedAt",
@@ -80,7 +88,8 @@ export interface RunEnvelope {
   id: string;
   parentRunId?: string | null;
   agent: string;
-  runtime?: RuntimeBackend;
+  runtime: RuntimeBackend;
+  contextMode: ContextInheritanceMode;
   status: RunState;
   startedAt?: string;
   endedAt?: string;
@@ -127,7 +136,8 @@ export function validateRunEnvelope(input: unknown): ValidationResult<RunEnvelop
   const id = readRequiredString(input, "id", issues);
   const parentRunId = hasOwn(input, "parentRunId") ? readNullableString(input.parentRunId, "parentRunId", issues) : undefined;
   const agent = readRequiredString(input, "agent", issues);
-  const runtime = readOptionalEnum(input.runtime, RUNTIME_BACKENDS, "runtime", issues);
+  const runtime = readRequiredEnum(input.runtime, RUNTIME_BACKENDS, "runtime", issues);
+  const contextMode = readRequiredEnum(input.contextMode, CONTEXT_INHERITANCE_MODES, "contextMode", issues);
   const status = readRequiredEnum(input.status, RUN_STATES, "status", issues);
   const startedAt = readOptionalIsoDate(input.startedAt, "startedAt", issues);
   const endedAt = readOptionalIsoDate(input.endedAt, "endedAt", issues);
@@ -143,11 +153,14 @@ export function validateRunEnvelope(input: unknown): ValidationResult<RunEnvelop
   const nextActions = readRequiredStringList(input.nextActions, "nextActions", issues);
   const error = hasOwn(input, "error") ? readError(input.error, issues) : undefined;
 
+  if (status && isTerminalStatus(status) && (!startedAt || !endedAt)) {
+    issues.push({ path: "endedAt", message: `${status} run envelopes require startedAt and endedAt.` });
+  }
   if ((status === "failed" || status === "expired") && !error) {
     issues.push({ path: "error", message: `${status} run envelopes require a structured error.` });
   }
 
-  if (issues.length > 0 || !id || !agent || !status || !summary || !cost || confidence === undefined) {
+  if (issues.length > 0 || !id || !agent || !runtime || !contextMode || !status || !summary || !cost || confidence === undefined) {
     return fail(issues);
   }
 
@@ -157,7 +170,8 @@ export function validateRunEnvelope(input: unknown): ValidationResult<RunEnvelop
       id,
       ...(parentRunId !== undefined ? { parentRunId } : {}),
       agent,
-      ...(runtime !== undefined ? { runtime } : {}),
+      runtime,
+      contextMode,
       status,
       ...(startedAt !== undefined ? { startedAt } : {}),
       ...(endedAt !== undefined ? { endedAt } : {}),
@@ -385,11 +399,19 @@ function readConfidence(value: unknown, issues: ValidationIssue[]): number | und
 
 function readOptionalIsoDate(value: unknown, path: string, issues: ValidationIssue[]): string | undefined {
   const parsed = readOptionalString(value, path, issues);
-  if (parsed && Number.isNaN(Date.parse(parsed))) {
-    issues.push({ path, message: `${path} must be an ISO date string.` });
+  if (!parsed) {
+    return undefined;
+  }
+  const time = Date.parse(parsed);
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(parsed) || Number.isNaN(time) || new Date(time).toISOString() !== parsed) {
+    issues.push({ path, message: `${path} must be an ISO timestamp like 2026-06-26T10:00:00.000Z.` });
     return undefined;
   }
   return parsed;
+}
+
+function isTerminalStatus(status: RunState): boolean {
+  return status === "completed" || status === "failed" || status === "cancelled" || status === "expired";
 }
 
 function readNullableNonNegativeNumber(value: unknown, path: string, issues: ValidationIssue[]): number | null | undefined {

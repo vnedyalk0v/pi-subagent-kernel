@@ -89,7 +89,11 @@ Every backend MUST return a normalized result envelope:
 {
   "id": "run_...",
   "agent": "reviewer",
+  "runtime": "subprocess",
+  "contextMode": "summary",
   "status": "completed",
+  "startedAt": "2026-06-26T10:00:00.000Z",
+  "endedAt": "2026-06-26T10:03:00.000Z",
   "summary": "Concise final answer.",
   "findings": [],
   "artifacts": [],

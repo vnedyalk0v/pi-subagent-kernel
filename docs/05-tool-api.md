@@ -214,6 +214,7 @@ MVP should not implement steering unless the chosen backend supports it reliably
   "parentRunId": null,
   "agent": "reviewer",
   "runtime": "subprocess",
+  "contextMode": "summary",
   "status": "completed",
   "startedAt": "2026-06-26T10:00:00.000Z",
   "endedAt": "2026-06-26T10:03:00.000Z",
@@ -258,7 +259,10 @@ MVP should not implement steering unless the chosen backend supports it reliably
   "id": "run_01J...",
   "agent": "reviewer",
   "runtime": "subprocess",
+  "contextMode": "summary",
   "status": "failed",
+  "startedAt": "2026-06-26T10:00:00.000Z",
+  "endedAt": "2026-06-26T10:30:01.000Z",
   "summary": "Reviewer timed out before producing a valid result.",
   "findings": [],
   "artifacts": [
