@@ -96,7 +96,9 @@ Every backend MUST return a normalized result envelope:
   "filesRead": [],
   "filesChanged": [],
   "testsRun": [],
-  "usage": {},
+  "cost": {
+    "estimatedUsd": null
+  },
   "confidence": 0.8,
   "nextActions": []
 }
