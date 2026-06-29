@@ -1,4 +1,5 @@
 import { parseAgentDefinitions, type AgentDefinition } from "../contracts/agent-definition.ts";
+import type { AgentRegistry } from "./agent-registry.ts";
 
 const builtInAgentInputs = [
   {
@@ -135,3 +136,7 @@ Return:
 ];
 
 export const BUILT_IN_AGENT_DEFINITIONS: readonly AgentDefinition[] = Object.freeze(parseAgentDefinitions(builtInAgentInputs));
+
+export function registerBuiltInAgents(registry: AgentRegistry): AgentDefinition[] {
+  return BUILT_IN_AGENT_DEFINITIONS.map((definition) => registry.register(definition));
+}
