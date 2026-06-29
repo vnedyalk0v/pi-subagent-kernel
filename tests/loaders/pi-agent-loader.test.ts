@@ -101,7 +101,7 @@ Body.
         ),
       (error) =>
         error instanceof PiAgentLoaderError &&
-        error.issues.some((issue) => issue.file === "bad-yaml.md" && issue.line === 2 && /Expected 'key: value'/.test(issue.message)),
+        error.issues.some((issue) => issue.file === "bad-yaml.md" && issue.line === 2 && /Implicit keys/.test(issue.message)),
     );
   });
 
@@ -124,11 +124,9 @@ Body.
     );
   });
 
-  it("rejects YAML list item mappings instead of corrupting schemas", () => {
-    assert.throws(
-      () =>
-        parsePiAgentMarkdown(
-          `---
+  it("preserves YAML list item mappings in inline schemas", () => {
+    const agent = parsePiAgentMarkdown(
+      `---
 name: scout
 description: Read-only explorer.
 outputSchema:
@@ -138,10 +136,10 @@ outputSchema:
 ---
 Body.
 `,
-          "list-mapping.md",
-        ),
-      /List item mappings are not supported/,
+      "list-mapping.md",
     );
+
+    assert.deepEqual(agent.outputSchema, { oneOf: [{ enum: ["safe"] }] });
   });
 
   it("rejects empty values instead of inventing objects", () => {
@@ -176,7 +174,7 @@ Body.
 `,
           "bad-indent.md",
         ),
-      /Top-level YAML keys must not be indented/,
+      /Implicit|block sequence|indent/i,
     );
   });
 

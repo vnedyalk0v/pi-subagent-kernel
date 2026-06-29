@@ -1,5 +1,6 @@
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { LineCounter, parseDocument } from "yaml";
 
 import { validateAgentDefinition, type AgentDefinition, type ValidationIssue } from "../contracts/agent-definition.ts";
 
@@ -99,221 +100,31 @@ function splitFrontmatter(source: string, file: string): { frontmatter: string; 
   };
 }
 
-interface YamlLine {
-  indent: number;
-  line: number;
-  text: string;
-}
-
 function parseYamlObject(source: string, file: string, lineOffset: number): Record<string, unknown> {
-  const lines = toYamlLines(source, file, lineOffset);
-  const root: Record<string, unknown> = {};
-  const stack: Array<{ indent: number; value: Record<string, unknown> | unknown[] }> = [{ indent: -1, value: root }];
-
-  lines.forEach((line, index) => {
-    while (stack.length > 1) {
-      const top = stack[stack.length - 1];
-      if (!top || line.indent >= top.indent) {
-        break;
-      }
-      stack.pop();
-    }
-
-    const parent = stack[stack.length - 1];
-    if (!parent) {
-      throw yamlError(file, line, "Unexpected YAML parser state.");
-    }
-    if (parent.indent === -1 && line.indent !== 0) {
-      throw yamlError(file, line, "Top-level YAML keys must not be indented.");
-    }
-    if (parent.indent !== -1 && line.indent !== parent.indent) {
-      throw yamlError(file, line, `Unexpected indentation; expected ${parent.indent} spaces.`);
-    }
-
-    if (line.text.startsWith("-")) {
-      if (!Array.isArray(parent.value)) {
-        throw yamlError(file, line, "Unexpected list item; expected a key/value pair.");
-      }
-      const raw = line.text.slice(1).trim();
-      if (/^[A-Za-z][A-Za-z0-9_-]*:(?:\s|$)/.test(raw)) {
-        throw yamlError(file, line, "List item mappings are not supported by the MVP YAML parser.");
-      }
-      parent.value.push(parseScalar(raw, file, line.line));
-      return;
-    }
-
-    if (Array.isArray(parent.value)) {
-      throw yamlError(file, line, "Expected a list item.");
-    }
-
-    const match = /^([A-Za-z][A-Za-z0-9_-]*):(.*)$/.exec(line.text);
-    if (!match?.[1] || match[2] === undefined) {
-      throw yamlError(file, line, "Expected 'key: value'.");
-    }
-
-    const key = match[1];
-    if (Object.prototype.hasOwnProperty.call(parent.value, key)) {
-      throw yamlError(file, line, `Duplicate YAML key "${key}".`);
-    }
-
-    const raw = match[2].trim();
-    if (raw) {
-      parent.value[key] = parseScalar(raw, file, line.line);
-      return;
-    }
-
-    const next = lines[index + 1];
-    if (!next || next.indent <= line.indent) {
-      parent.value[key] = null;
-      return;
-    }
-
-    const child: Record<string, unknown> | unknown[] = next.text.startsWith("-") ? [] : {};
-    parent.value[key] = child;
-    stack.push({ indent: next.indent, value: child });
+  const lineCounter = new LineCounter();
+  const document = parseDocument(source, {
+    lineCounter,
+    strict: true,
+    uniqueKeys: true,
   });
+  const issues = [...document.errors, ...document.warnings].map((error) => toYamlIssue(file, error, lineOffset));
 
-  return root;
-}
-
-function toYamlLines(source: string, file: string, lineOffset: number): YamlLine[] {
-  const lines: YamlLine[] = [];
-  source.split(/\r?\n/).forEach((rawLine, index) => {
-    if (/^\s*$/.test(rawLine)) {
-      return;
-    }
-    if (rawLine.startsWith("\t")) {
-      throw yamlError(file, { indent: 0, line: lineOffset + index, text: rawLine }, "Tabs are not allowed for indentation.");
-    }
-
-    const indent = rawLine.match(/^ */)?.[0].length ?? 0;
-    const text = stripYamlComment(rawLine.slice(indent)).trimEnd();
-    if (!text) {
-      return;
-    }
-    lines.push({ indent, line: lineOffset + index, text });
-  });
-  return lines;
-}
-
-function parseScalar(raw: string, file: string, line: number): unknown {
-  if (raw === "[]") {
-    return [];
-  }
-  if (raw.startsWith("[")) {
-    return parseInlineArray(raw, file, line);
-  }
-  if (raw === "{}") {
-    return {};
-  }
-  if (raw.startsWith("{")) {
-    throw yamlError(file, { indent: 0, line, text: raw }, "Inline objects are not supported; use indented key/value pairs.");
-  }
-  if (raw === "true") {
-    return true;
-  }
-  if (raw === "false") {
-    return false;
-  }
-  if (raw === "null" || raw === "~") {
-    return null;
-  }
-  if (/^-?(?:0|[1-9]\d*)(?:\.\d+)?$/.test(raw)) {
-    return Number(raw);
-  }
-  if (raw.startsWith('"')) {
-    return parseDoubleQuoted(raw, file, line);
-  }
-  if (raw.startsWith("'")) {
-    return parseSingleQuoted(raw, file, line);
-  }
-  return raw;
-}
-
-function parseInlineArray(raw: string, file: string, line: number): unknown[] {
-  if (!raw.startsWith("[") || !raw.endsWith("]")) {
-    throw yamlError(file, { indent: 0, line, text: raw }, "Invalid inline array.");
+  if (issues.length > 0) {
+    throw new PiAgentLoaderError(issues);
   }
 
-  const body = raw.slice(1, -1).trim();
-  if (!body) {
-    return [];
-  }
-
-  return splitInlineItems(body, file, line).map((item) => parseScalar(item, file, line));
-}
-
-function splitInlineItems(body: string, file: string, line: number): string[] {
-  const items: string[] = [];
-  let quote: "'" | '"' | undefined;
-  let start = 0;
-
-  for (let index = 0; index < body.length; index += 1) {
-    const char = body[index];
-    if (quote) {
-      if (char === quote) {
-        quote = undefined;
-      }
-      continue;
-    }
-    if (char === "'" || char === '"') {
-      quote = char;
-      continue;
-    }
-    if (char === ",") {
-      items.push(body.slice(start, index).trim());
-      start = index + 1;
-    }
-  }
-
-  if (quote) {
-    throw yamlError(file, { indent: 0, line, text: body }, "Unterminated quoted string in inline array.");
-  }
-
-  items.push(body.slice(start).trim());
-  if (items.some((item) => item.length === 0)) {
-    throw yamlError(file, { indent: 0, line, text: body }, "Inline array contains an empty item.");
-  }
-  return items;
-}
-
-function parseDoubleQuoted(raw: string, file: string, line: number): string {
-  if (!raw.startsWith('"') || !raw.endsWith('"')) {
-    throw yamlError(file, { indent: 0, line, text: raw }, "Unterminated double-quoted string.");
-  }
+  let value: unknown;
   try {
-    return JSON.parse(raw) as string;
-  } catch {
-    throw yamlError(file, { indent: 0, line, text: raw }, "Invalid double-quoted string.");
+    value = document.toJS({ maxAliasCount: 0 });
+  } catch (error) {
+    throw new PiAgentLoaderError([{ file, message: error instanceof Error ? error.message : String(error) }]);
   }
-}
 
-function parseSingleQuoted(raw: string, file: string, line: number): string {
-  if (!raw.startsWith("'") || !raw.endsWith("'")) {
-    throw yamlError(file, { indent: 0, line, text: raw }, "Unterminated single-quoted string.");
+  if (!isRecord(value)) {
+    throw new PiAgentLoaderError([{ file, line: lineOffset, message: "YAML frontmatter must be an object." }]);
   }
-  return raw.slice(1, -1).replaceAll("''", "'");
-}
 
-function stripYamlComment(text: string): string {
-  let quote: "'" | '"' | undefined;
-  for (let index = 0; index < text.length; index += 1) {
-    const char = text[index];
-    if (quote) {
-      if (char === quote) {
-        quote = undefined;
-      }
-      continue;
-    }
-    if (char === "'" || char === '"') {
-      quote = char;
-      continue;
-    }
-    if (char === "#" && (index === 0 || /\s/.test(text[index - 1] ?? ""))) {
-      return text.slice(0, index).trimEnd();
-    }
-  }
-  return text;
+  return value;
 }
 
 function findDuplicateNames(loaded: Array<{ file: string; definition: AgentDefinition }>): PiAgentLoaderIssue[] {
@@ -337,17 +148,26 @@ function findDuplicateNames(loaded: Array<{ file: string; definition: AgentDefin
   return issues;
 }
 
-function toLoaderIssue(file: string, issue: ValidationIssue): PiAgentLoaderIssue {
-  return { file, path: issue.path, message: issue.message };
+function toYamlIssue(file: string, error: { message: string; linePos?: Array<{ line: number }> }, lineOffset: number): PiAgentLoaderIssue {
+  const position = error.linePos?.[0];
+  return {
+    file,
+    ...(position ? { line: lineOffset + position.line - 1 } : {}),
+    message: error.message,
+  };
 }
 
-function yamlError(file: string, line: YamlLine, message: string): PiAgentLoaderError {
-  return new PiAgentLoaderError([{ file, line: line.line, message }]);
+function toLoaderIssue(file: string, issue: ValidationIssue): PiAgentLoaderIssue {
+  return { file, path: issue.path, message: issue.message };
 }
 
 function formatIssue(issue: PiAgentLoaderIssue): string {
   const location = [issue.file, issue.line, issue.path].filter((part) => part !== undefined && part !== "").join(":");
   return `${location}: ${issue.message}`;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {
