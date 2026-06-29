@@ -39,21 +39,25 @@ describe("Pi agent loader", () => {
     assert.equal(agent.outputSchema, "research_notes_v1");
   });
 
-  it("preserves bracket-suffixed scalars", () => {
+  it("preserves plain scalars with bracket, quote, or brace suffixes", () => {
     const agent = parsePiAgentMarkdown(
       `---
 name: scout
-description: Read-only explorer.
+description: Reviews "security"
 context:
   includeFiles:
     - app/[locale]
+tags:
+  - expands ${"${VAR}"}
 ---
 Gather evidence only.
 `,
-      "brackets.md",
+      "plain-scalars.md",
     );
 
+    assert.equal(agent.description, 'Reviews "security"');
     assert.deepEqual(agent.includeFiles, ["app/[locale]"]);
+    assert.deepEqual(agent.tags, ["expands ${VAR}"]);
   });
 
   it("loads .pi/agents/*.md files in deterministic order", async () => {
@@ -137,6 +141,42 @@ Body.
           "list-mapping.md",
         ),
       /List item mappings are not supported/,
+    );
+  });
+
+  it("rejects empty values instead of inventing objects", () => {
+    assert.throws(
+      () =>
+        parsePiAgentMarkdown(
+          `---
+name: scout
+description: Read-only explorer.
+outputSchema:
+---
+Body.
+`,
+          "empty-value.md",
+        ),
+      /outputSchema must be a string or object/,
+    );
+  });
+
+  it("rejects inconsistent nested indentation", () => {
+    assert.throws(
+      () =>
+        parsePiAgentMarkdown(
+          `---
+name: scout
+description: Read-only explorer.
+tools:
+    - read
+  - grep
+---
+Body.
+`,
+          "bad-indent.md",
+        ),
+      /Top-level YAML keys must not be indented/,
     );
   });
 

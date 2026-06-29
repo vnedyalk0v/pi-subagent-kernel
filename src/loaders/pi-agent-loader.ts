@@ -113,7 +113,7 @@ function parseYamlObject(source: string, file: string, lineOffset: number): Reco
   lines.forEach((line, index) => {
     while (stack.length > 1) {
       const top = stack[stack.length - 1];
-      if (!top || top.indent < line.indent) {
+      if (!top || line.indent >= top.indent) {
         break;
       }
       stack.pop();
@@ -125,6 +125,9 @@ function parseYamlObject(source: string, file: string, lineOffset: number): Reco
     }
     if (parent.indent === -1 && line.indent !== 0) {
       throw yamlError(file, line, "Top-level YAML keys must not be indented.");
+    }
+    if (parent.indent !== -1 && line.indent !== parent.indent) {
+      throw yamlError(file, line, `Unexpected indentation; expected ${parent.indent} spaces.`);
     }
 
     if (line.text.startsWith("-")) {
@@ -160,9 +163,14 @@ function parseYamlObject(source: string, file: string, lineOffset: number): Reco
     }
 
     const next = lines[index + 1];
-    const child: Record<string, unknown> | unknown[] = next && next.indent > line.indent && next.text.startsWith("-") ? [] : {};
+    if (!next || next.indent <= line.indent) {
+      parent.value[key] = null;
+      return;
+    }
+
+    const child: Record<string, unknown> | unknown[] = next.text.startsWith("-") ? [] : {};
     parent.value[key] = child;
-    stack.push({ indent: line.indent, value: child });
+    stack.push({ indent: next.indent, value: child });
   });
 
   return root;
@@ -198,7 +206,7 @@ function parseScalar(raw: string, file: string, line: number): unknown {
   if (raw === "{}") {
     return {};
   }
-  if (raw.startsWith("{") || raw.endsWith("}")) {
+  if (raw.startsWith("{")) {
     throw yamlError(file, { indent: 0, line, text: raw }, "Inline objects are not supported; use indented key/value pairs.");
   }
   if (raw === "true") {
@@ -213,10 +221,10 @@ function parseScalar(raw: string, file: string, line: number): unknown {
   if (/^-?(?:0|[1-9]\d*)(?:\.\d+)?$/.test(raw)) {
     return Number(raw);
   }
-  if (raw.startsWith('"') || raw.endsWith('"')) {
+  if (raw.startsWith('"')) {
     return parseDoubleQuoted(raw, file, line);
   }
-  if (raw.startsWith("'") || raw.endsWith("'")) {
+  if (raw.startsWith("'")) {
     return parseSingleQuoted(raw, file, line);
   }
   return raw;
