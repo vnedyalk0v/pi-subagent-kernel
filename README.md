@@ -6,7 +6,7 @@ It contains source-backed specifications plus the TypeScript package work as it 
 
 ## Current implementation status
 
-The package exports core contracts, in-memory agent and run registries, safe built-in MVP agent definitions (`scout`, `reviewer`, `tester`, `summarizer`), a `.pi/agents/*.md` loader that requires explicit project trust, and a Pi extension entrypoint that registers the canonical MVP tool names. `subagent_spawn` now returns structured mock-backend results; `subagent_status`, `subagent_result`, and `subagent_cancel` remain structured placeholders until their M4 issues. `tests/extension/extension.test.ts` is the mock extension-load harness for local validation without a live Pi session.
+The package exports core contracts, in-memory agent and run registries, safe built-in MVP agent definitions (`scout`, `reviewer`, `tester`, `summarizer`), a `.pi/agents/*.md` loader that requires explicit project trust, and a Pi extension entrypoint that registers the canonical MVP tool names. `subagent_spawn` now returns structured mock-backend results, `subagent_status` returns in-memory run status, and `subagent_result`/`subagent_cancel` remain structured placeholders until their M4 issues. `tests/extension/extension.test.ts` is the mock extension-load harness for local validation without a live Pi session.
 
 ## What to build
 
