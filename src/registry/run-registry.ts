@@ -16,7 +16,7 @@ const ALLOWED_TRANSITIONS: Record<RunState, readonly RunState[]> = {
   completed: [],
   failed: [],
   cancelled: [],
-  expired: [],
+  expired: ["failed"],
 };
 
 export interface CreateRunInput {
@@ -246,7 +246,10 @@ function toRunStatus(record: RunRecord): RunStatus {
 }
 
 function assertTransition(current: RunRecord, to: RunState, runtime?: ExecutionBackendId, error?: RunError): void {
-  if (!ALLOWED_TRANSITIONS[current.status].includes(to)) {
+  if (current.status !== to && !ALLOWED_TRANSITIONS[current.status].includes(to)) {
+    throw new InvalidRunTransitionError(current.id, current.status, to);
+  }
+  if (current.status === to && TERMINAL_STATES.has(to)) {
     throw new InvalidRunTransitionError(current.id, current.status, to);
   }
   if (ACTIVE_STATES.has(to) && !runtime) {
@@ -265,12 +268,16 @@ function parseCreateRunInput(input: CreateRunInput): CreateRunInput {
     fail("run", "$", "Run must be an object.");
   }
 
-  const id = input.id === undefined ? undefined : readString(input.id, "id", "run");
-  const agent = readString(input.agent, "agent", "run");
-  const task = readString(input.task, "task", "run");
-  const runtime = input.runtime === undefined ? undefined : readRuntime(input.runtime, "runtime", "run");
-  const parentRunId = input.parentRunId === undefined ? undefined : input.parentRunId === null ? null : readString(input.parentRunId, "parentRunId", "run");
-  const summary = input.summary === undefined ? undefined : readString(input.summary, "summary", "run");
+  const idValue = own(input, "id");
+  const runtimeValue = own(input, "runtime");
+  const parentRunIdValue = own(input, "parentRunId");
+  const summaryValue = own(input, "summary");
+  const id = idValue === undefined ? undefined : readString(idValue, "id", "run");
+  const agent = readString(own(input, "agent"), "agent", "run");
+  const task = readString(own(input, "task"), "task", "run");
+  const runtime = runtimeValue === undefined ? undefined : readRuntime(runtimeValue, "runtime", "run");
+  const parentRunId = parentRunIdValue === undefined ? undefined : parentRunIdValue === null ? null : readString(parentRunIdValue, "parentRunId", "run");
+  const summary = summaryValue === undefined ? undefined : readString(summaryValue, "summary", "run");
 
   if (id && parentRunId === id) {
     fail("run", "parentRunId", "parentRunId must not equal id.");
@@ -291,10 +298,13 @@ function parseRunUpdate(input: RunUpdate): RunUpdate {
     fail("run update", "$", "Run update must be an object.");
   }
 
+  const runtime = own(input, "runtime");
+  const summary = own(input, "summary");
+  const error = own(input, "error");
   return {
-    ...(input.runtime !== undefined ? { runtime: readRuntime(input.runtime, "runtime", "run update") } : {}),
-    ...(input.summary !== undefined ? { summary: readString(input.summary, "summary", "run update") } : {}),
-    ...(input.error !== undefined ? { error: readRunError(input.error) } : {}),
+    ...(runtime !== undefined ? { runtime: readRuntime(runtime, "runtime", "run update") } : {}),
+    ...(summary !== undefined ? { summary: readString(summary, "summary", "run update") } : {}),
+    ...(error !== undefined ? { error: readRunError(error) } : {}),
   };
 }
 
@@ -314,10 +324,11 @@ function readRunError(value: unknown): RunError {
     fail("run update", "error", "error must be an object.");
   }
 
-  const code = readString(value.code, "error.code", "run update");
-  const message = readString(value.message, "error.message", "run update");
-  const retryable = readBoolean(value.retryable, "error.retryable", "run update");
-  const details = value.details === undefined ? undefined : readRecord(value.details, "error.details", "run update");
+  const detailsValue = own(value, "details");
+  const code = readString(own(value, "code"), "error.code", "run update");
+  const message = readString(own(value, "message"), "error.message", "run update");
+  const retryable = readBoolean(own(value, "retryable"), "error.retryable", "run update");
+  const details = detailsValue === undefined ? undefined : readRecord(detailsValue, "error.details", "run update");
 
   return { code, message, retryable, ...(details !== undefined ? { details } : {}) };
 }
@@ -354,11 +365,15 @@ function readRecord(value: unknown, path: string, kind: string): Record<string, 
   if (!isRecord(value)) {
     fail(kind, path, `${path} must be an object.`);
   }
-  return Object.fromEntries(Object.keys(value).map((key) => [key, value[key]]));
+  return { ...value };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function own(record: Record<string, unknown>, key: string): unknown {
+  return Object.prototype.hasOwnProperty.call(record, key) ? record[key] : undefined;
 }
 
 function deepFreeze<T>(value: T): T {

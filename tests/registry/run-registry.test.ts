@@ -62,6 +62,9 @@ describe("RunRegistry", () => {
     assert.throws(() => registry.create({ id: "run_1", agent: "scout", task: "Again" }), DuplicateRunIdError);
     assert.throws(() => registry.create({ id: "run_bad", agent: " ", task: "Inspect" }), /agent must not be empty/);
     assert.throws(() => registry.create({ id: "run_bad", agent: "scout", task: "Inspect", runtime: "auto" as never }), /runtime must be one of/);
+
+    const inherited = Object.create({ agent: "scout", task: "Inspect", runtime: "sdk" });
+    assert.throws(() => registry.create(inherited), /agent is required/);
   });
 
   it("updates lifecycle state through the documented happy path", () => {
@@ -70,6 +73,7 @@ describe("RunRegistry", () => {
 
     assert.equal(registry.updateState("run_1", "starting").startedAt, "2026-06-26T10:00:00.000Z");
     assert.equal(registry.updateState("run_1", "running", { summary: "Reading files" }).summary, "Reading files");
+    assert.equal(registry.updateState("run_1", "running", { summary: "Still reading" }).summary, "Still reading");
     assert.equal(registry.updateState("run_1", "waiting_for_input").status, "waiting_for_input");
     assert.equal(registry.updateState("run_1", "running").status, "running");
 
@@ -104,10 +108,12 @@ describe("RunRegistry", () => {
     registry.create({ id: "run_1", agent: "scout", task: "Inspect README.md" });
 
     assert.throws(() => registry.updateState("run_1", "starting"), /runtime is required before moving to starting/);
+    assert.throws(() => registry.updateState("run_1", "starting", Object.create({ runtime: "sdk" })), /runtime is required/);
     assert.equal(registry.updateState("run_1", "starting", { runtime: "sdk" }).runtime, "sdk");
     assert.throws(() => registry.updateState("run_1", "running", { runtime: "subprocess" }), /runtime is already sdk/);
     assert.equal(registry.updateState("run_1", "running").status, "running");
     assert.throws(() => registry.updateState("run_1", "failed"), /failed runs require a structured error/);
+    assert.throws(() => registry.updateState("run_1", "failed", { error: Object.create(timeoutError) }), /error.code is required/);
 
     const failed = registry.updateState("run_1", "failed", {
       error: { ...timeoutError, details: { nested: { retryableAfterSec: 30 } } },
@@ -139,6 +145,14 @@ describe("RunRegistry", () => {
     const expired = registry.updateState("run_expire", "expired", { error: timeoutError });
     assert.equal(expired.status, "expired");
     assert.equal(expired.error?.retryable, true);
+
+    const failed = registry.storeResult({
+      ...completedEnvelope("run_expire"),
+      status: "failed",
+      summary: "Failed after timeout.",
+      error: timeoutError,
+    });
+    assert.equal(failed.status, "failed");
   });
 
   it("stores and fetches a terminal result envelope", () => {
