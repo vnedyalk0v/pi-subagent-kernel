@@ -17,13 +17,14 @@ describe("Pi extension entrypoint", () => {
       assert.equal(tool.parameters.additionalProperties, false);
     }
     assert.doesNotMatch(registered[0]?.description ?? "", /placeholder/i);
-    for (const tool of registered.slice(1)) {
+    assert.doesNotMatch(registered[1]?.description ?? "", /placeholder/i);
+    for (const tool of registered.slice(2)) {
       assert.match(tool.description, /placeholder/i);
     }
   });
 
-  it("keeps non-spawn tools as structured placeholders", async () => {
-    for (const tool of createSubagentTools().slice(1)) {
+  it("keeps result and cancel tools as structured placeholders", async () => {
+    for (const tool of createSubagentTools().slice(2)) {
       const params = validParams(tool.name);
       const result = await tool.execute("call_1", params);
 
@@ -40,7 +41,7 @@ function validParams(toolName: PiToolDefinition["name"]): Record<string, unknown
     case "subagent_spawn":
       return { agent: "scout", task: "Inspect the contracts.", mode: "foreground" };
     case "subagent_status":
-      return {};
+      return { id: "run_01" };
     case "subagent_result":
       return { id: "run_01" };
     case "subagent_cancel":
