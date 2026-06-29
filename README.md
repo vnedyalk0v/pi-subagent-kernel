@@ -1,8 +1,12 @@
 # Pi SubAgent Kernel
 
-This repository is intended to be the starting documentation set for building a better SubAgents implementation for the Pi Coding Agent.
+This repository is intended to be the starting documentation set and staged implementation for a better SubAgents implementation for the Pi Coding Agent.
 
-It contains **specifications only**: no generated runtime code, no package lockfiles, and no hidden assumptions. The documents separate **verified external facts** from **design recommendations** so an AI coding agent can build from them without turning research notes into false requirements.
+It contains source-backed specifications plus the TypeScript package work as it is built. The documents separate **verified external facts** from **design recommendations** so an AI coding agent can build from them without turning research notes into false requirements.
+
+## Current implementation status
+
+The package exports a Pi extension entrypoint that registers the canonical MVP tool names. The tools currently return structured `not_implemented` details; real run registry and backend execution are later milestone work. `tests/extension/extension.test.ts` is the mock extension-load harness for local validation without a live Pi session.
 
 ## What to build
 
