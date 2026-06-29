@@ -109,7 +109,7 @@ const spawnParameters = objectSchema(
       includeDiff: { type: "boolean", description: "Whether to include the current diff" },
     }),
     limits: objectSchema({
-      maxRuntimeSec: { type: "number", exclusiveMinimum: 0, description: "Runtime cap in seconds" },
+      maxRuntimeSec: { type: "integer", exclusiveMinimum: 0, description: "Runtime cap in seconds" },
       maxCostUsd: { type: "number", minimum: 0, description: "Cost cap in USD" },
     }),
     outputSchema: { anyOf: [stringSchema("Output schema name"), { type: "object" }] },
@@ -160,9 +160,13 @@ function spawnTool(services: SubagentToolServices): PiToolDefinition {
 
       const runtime = resolveRuntime(request.runtime, agent.runtime);
       const policy = parsePermissionPolicy({});
+      const maxRuntimeCap = agent.maxRuntimeSec ?? 1800;
+      const requestedCost = request.limits?.maxCostUsd ?? agent.maxCostUsd;
       const limits = {
-        maxRuntimeSec: request.limits?.maxRuntimeSec ?? agent.maxRuntimeSec ?? 1800,
-        ...(request.limits?.maxCostUsd !== undefined ? { maxCostUsd: request.limits.maxCostUsd } : {}),
+        maxRuntimeSec: Math.min(request.limits?.maxRuntimeSec ?? maxRuntimeCap, maxRuntimeCap),
+        ...(requestedCost !== undefined
+          ? { maxCostUsd: agent.maxCostUsd !== undefined ? Math.min(requestedCost, agent.maxCostUsd) : requestedCost }
+          : {}),
       };
       const contextMode = request.context?.inherit ?? agent.inheritContext;
       const runId = `run_${randomUUID()}`;
@@ -360,7 +364,7 @@ function readLimits(input: unknown): NonNullable<SpawnToolInput["limits"]> {
   rejectUnknown(value, LIMIT_KEYS, "limits");
 
   return {
-    ...(own(value, "maxRuntimeSec") !== undefined ? { maxRuntimeSec: readPositiveNumber(own(value, "maxRuntimeSec"), "limits.maxRuntimeSec") } : {}),
+    ...(own(value, "maxRuntimeSec") !== undefined ? { maxRuntimeSec: readPositiveInteger(own(value, "maxRuntimeSec"), "limits.maxRuntimeSec") } : {}),
     ...(own(value, "maxCostUsd") !== undefined ? { maxCostUsd: readNonNegativeNumber(own(value, "maxCostUsd"), "limits.maxCostUsd") } : {}),
   };
 }
@@ -427,9 +431,9 @@ function readBoolean(value: unknown, path: string): boolean {
   return value;
 }
 
-function readPositiveNumber(value: unknown, path: string): number {
-  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
-    throw new SubagentToolValidationError(`${path}: ${path} must be a positive number.`);
+function readPositiveInteger(value: unknown, path: string): number {
+  if (typeof value !== "number" || !Number.isInteger(value) || value <= 0) {
+    throw new SubagentToolValidationError(`${path}: ${path} must be a positive integer.`);
   }
   return value;
 }

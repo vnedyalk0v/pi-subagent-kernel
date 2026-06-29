@@ -17,7 +17,7 @@ describe("subagent_spawn", () => {
       task: "Inspect README.md",
       mode: "foreground",
       context: { inherit: "summary", files: ["README.md"] },
-      limits: { maxCostUsd: 0.25 },
+      limits: { maxRuntimeSec: 999999, maxCostUsd: 1 },
     });
 
     assert.equal(result.details.tool, "subagent_spawn");
@@ -25,6 +25,7 @@ describe("subagent_spawn", () => {
     assert.equal(result.details.mock, true);
     assert.equal(result.details.policy.maxDepth, 1);
     assert.equal(result.details.policy.nestedSubagents, false);
+    assert.equal(result.details.limits.maxRuntimeSec, 900);
     assert.equal(result.details.limits.maxCostUsd, 0.25);
     assert.equal(result.details.status, "completed");
     assert.ok(result.details.result);
@@ -70,6 +71,10 @@ describe("subagent_spawn", () => {
     await assert.rejects(
       () => spawnTool().execute("call_1", { tasks: [{ agent: "scout", task: "Do work." }] }),
       /Unknown field "tasks"/,
+    );
+    await assert.rejects(
+      () => spawnTool().execute("call_1", { agent: "scout", task: "Do work.", limits: { maxRuntimeSec: 0.5 } }),
+      /limits\.maxRuntimeSec must be a positive integer/,
     );
     await assert.rejects(
       () => spawnTool().execute("call_1", { agent: "scout", task: "Do work.", context: { inherit: "full" } }),
