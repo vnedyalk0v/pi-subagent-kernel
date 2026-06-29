@@ -55,7 +55,7 @@ export async function loadPiAgentDefinitions(rootDir: string): Promise<AgentDefi
 
 export function parsePiAgentMarkdown(source: string, file = "<agent>"): AgentDefinition {
   const parts = splitFrontmatter(source, file);
-  const raw = parseYamlObject(parts.frontmatter, file);
+  const raw = parseYamlObject(parts.frontmatter, file, 2);
   const instructions = parts.body.trim();
 
   if (!instructions) {
@@ -105,8 +105,8 @@ interface YamlLine {
   text: string;
 }
 
-function parseYamlObject(source: string, file: string): Record<string, unknown> {
-  const lines = toYamlLines(source, file);
+function parseYamlObject(source: string, file: string, lineOffset: number): Record<string, unknown> {
+  const lines = toYamlLines(source, file, lineOffset);
   const root: Record<string, unknown> = {};
   const stack: Array<{ indent: number; value: Record<string, unknown> | unknown[] }> = [{ indent: -1, value: root }];
 
@@ -132,7 +132,7 @@ function parseYamlObject(source: string, file: string): Record<string, unknown> 
         throw yamlError(file, line, "Unexpected list item; expected a key/value pair.");
       }
       const raw = line.text.slice(1).trim();
-      if (/^[A-Za-z][A-Za-z0-9_-]*:\s+/.test(raw)) {
+      if (/^[A-Za-z][A-Za-z0-9_-]*:(?:\s|$)/.test(raw)) {
         throw yamlError(file, line, "List item mappings are not supported by the MVP YAML parser.");
       }
       parent.value.push(parseScalar(raw, file, line.line));
@@ -168,14 +168,14 @@ function parseYamlObject(source: string, file: string): Record<string, unknown> 
   return root;
 }
 
-function toYamlLines(source: string, file: string): YamlLine[] {
+function toYamlLines(source: string, file: string, lineOffset: number): YamlLine[] {
   const lines: YamlLine[] = [];
   source.split(/\r?\n/).forEach((rawLine, index) => {
     if (/^\s*$/.test(rawLine)) {
       return;
     }
     if (rawLine.startsWith("\t")) {
-      throw yamlError(file, { indent: 0, line: index + 1, text: rawLine }, "Tabs are not allowed for indentation.");
+      throw yamlError(file, { indent: 0, line: lineOffset + index, text: rawLine }, "Tabs are not allowed for indentation.");
     }
 
     const indent = rawLine.match(/^ */)?.[0].length ?? 0;
@@ -183,7 +183,7 @@ function toYamlLines(source: string, file: string): YamlLine[] {
     if (!text) {
       return;
     }
-    lines.push({ indent, line: index + 1, text });
+    lines.push({ indent, line: lineOffset + index, text });
   });
   return lines;
 }
@@ -192,7 +192,7 @@ function parseScalar(raw: string, file: string, line: number): unknown {
   if (raw === "[]") {
     return [];
   }
-  if (raw.startsWith("[") || raw.endsWith("]")) {
+  if (raw.startsWith("[")) {
     return parseInlineArray(raw, file, line);
   }
   if (raw === "{}") {

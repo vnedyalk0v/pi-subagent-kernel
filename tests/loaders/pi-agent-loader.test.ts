@@ -39,6 +39,23 @@ describe("Pi agent loader", () => {
     assert.equal(agent.outputSchema, "research_notes_v1");
   });
 
+  it("preserves bracket-suffixed scalars", () => {
+    const agent = parsePiAgentMarkdown(
+      `---
+name: scout
+description: Read-only explorer.
+context:
+  includeFiles:
+    - app/[locale]
+---
+Gather evidence only.
+`,
+      "brackets.md",
+    );
+
+    assert.deepEqual(agent.includeFiles, ["app/[locale]"]);
+  });
+
   it("loads .pi/agents/*.md files in deterministic order", async () => {
     await withTempRoot(async (root) => {
       await writeAgent(root, "b.md", validScout.replace("name: scout", "name: tester"));
@@ -80,7 +97,7 @@ Body.
         ),
       (error) =>
         error instanceof PiAgentLoaderError &&
-        error.issues.some((issue) => issue.file === "bad-yaml.md" && issue.line === 1 && /Expected 'key: value'/.test(issue.message)),
+        error.issues.some((issue) => issue.file === "bad-yaml.md" && issue.line === 2 && /Expected 'key: value'/.test(issue.message)),
     );
   });
 
@@ -112,7 +129,8 @@ name: scout
 description: Read-only explorer.
 outputSchema:
   oneOf:
-    - type: string
+    - enum:
+      - safe
 ---
 Body.
 `,
