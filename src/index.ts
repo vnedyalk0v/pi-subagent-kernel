@@ -1,2 +1,2 @@
 export * from "./contracts/index.ts";
-export { activate } from "./extension.ts";
+export { default, activate } from "./extension.ts";
