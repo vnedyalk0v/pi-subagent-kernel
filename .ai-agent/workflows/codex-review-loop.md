@@ -25,8 +25,14 @@ For a current head commit:
 ```bash
 gh pr view <pr-number> --json number,title,headRefOid,comments,reviews,statusCheckRollup,updatedAt
 
-gh api repos/vnedyalk0v/pi-subagent-kernel/issues/<pr-number>/comments \
+gh api repos/vnedyalk0v/pi-subagent-kernel/issues/<pr-number>/comments --paginate \
   --jq '.[] | {id, user: .user.login, body, reactions: .reactions, created_at}'
+
+gh api repos/vnedyalk0v/pi-subagent-kernel/issues/<pr-number>/comments --paginate --jq '.[].id' | while read -r comment_id; do
+  gh api repos/vnedyalk0v/pi-subagent-kernel/issues/comments/$comment_id/reactions \
+    -H 'Accept: application/vnd.github+json' \
+    --jq ".[] | {comment_id: $comment_id, user: .user.login, content, created_at}"
+done
 
 gh api repos/vnedyalk0v/pi-subagent-kernel/issues/<pr-number>/reactions \
   -H 'Accept: application/vnd.github+json' \
@@ -34,10 +40,10 @@ gh api repos/vnedyalk0v/pi-subagent-kernel/issues/<pr-number>/reactions \
 
 gh api repos/vnedyalk0v/pi-subagent-kernel/pulls/<pr-number>/reviews
 
-gh api repos/vnedyalk0v/pi-subagent-kernel/pulls/<pr-number>/comments \
+gh api repos/vnedyalk0v/pi-subagent-kernel/pulls/<pr-number>/comments --paginate \
   --jq '.[] | {id, user: .user.login, body, path, line, created_at}'
 
-gh api repos/vnedyalk0v/pi-subagent-kernel/pulls/<pr-number>/comments --jq '.[].id' | while read -r comment_id; do
+gh api repos/vnedyalk0v/pi-subagent-kernel/pulls/<pr-number>/comments --paginate --jq '.[].id' | while read -r comment_id; do
   gh api repos/vnedyalk0v/pi-subagent-kernel/pulls/comments/$comment_id/reactions \
     -H 'Accept: application/vnd.github+json' \
     --jq ".[] | {comment_id: $comment_id, user: .user.login, content, created_at}"
