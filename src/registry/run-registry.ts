@@ -5,6 +5,8 @@ import { RUN_ENVELOPE_RUNTIMES, parseRunEnvelope, type RunArtifactRef, type RunE
 import { RUN_STATES, type RunState } from "../contracts/run-state.ts";
 import type { ValidationIssue } from "../contracts/agent-definition.ts";
 
+const CREATE_RUN_KEYS = new Set(["id", "agent", "task", "runtime", "parentRunId", "summary"]);
+const UPDATE_KEYS = new Set(["runtime", "summary", "error"]);
 const TERMINAL_STATES = new Set<RunState>(["completed", "failed", "cancelled", "expired"]);
 const ACTIVE_STATES = new Set<RunState>(["starting", "running", "waiting_for_input"]);
 
@@ -268,6 +270,8 @@ function parseCreateRunInput(input: CreateRunInput): CreateRunInput {
     fail("run", "$", "Run must be an object.");
   }
 
+  rejectUnknownKeys(input, CREATE_RUN_KEYS, "run");
+
   const idValue = own(input, "id");
   const runtimeValue = own(input, "runtime");
   const parentRunIdValue = own(input, "parentRunId");
@@ -297,6 +301,8 @@ function parseRunUpdate(input: RunUpdate): RunUpdate {
   if (!isRecord(input)) {
     fail("run update", "$", "Run update must be an object.");
   }
+
+  rejectUnknownKeys(input, UPDATE_KEYS, "run update");
 
   const runtime = own(input, "runtime");
   const summary = own(input, "summary");
@@ -374,6 +380,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function own(record: Record<string, unknown>, key: string): unknown {
   return Object.prototype.hasOwnProperty.call(record, key) ? record[key] : undefined;
+}
+
+function rejectUnknownKeys(record: Record<string, unknown>, allowed: ReadonlySet<string>, kind: string): void {
+  for (const key of Object.keys(record)) {
+    if (!allowed.has(key)) {
+      fail(kind, key, `Unknown field "${key}".`);
+    }
+  }
 }
 
 function deepFreeze<T>(value: T): T {

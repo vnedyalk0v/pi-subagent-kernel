@@ -62,6 +62,7 @@ describe("RunRegistry", () => {
     assert.throws(() => registry.create({ id: "run_1", agent: "scout", task: "Again" }), DuplicateRunIdError);
     assert.throws(() => registry.create({ id: "run_bad", agent: " ", task: "Inspect" }), /agent must not be empty/);
     assert.throws(() => registry.create({ id: "run_bad", agent: "scout", task: "Inspect", runtime: "auto" as never }), /runtime must be one of/);
+    assert.throws(() => registry.create({ id: "run_bad", agent: "scout", task: "Inspect", surprise: true } as never), /Unknown field "surprise"/);
 
     const inherited = Object.create({ agent: "scout", task: "Inspect", runtime: "sdk" });
     assert.throws(() => registry.create(inherited), /agent is required/);
@@ -109,6 +110,7 @@ describe("RunRegistry", () => {
 
     assert.throws(() => registry.updateState("run_1", "starting"), /runtime is required before moving to starting/);
     assert.throws(() => registry.updateState("run_1", "starting", Object.create({ runtime: "sdk" })), /runtime is required/);
+    assert.throws(() => registry.updateState("run_1", "starting", { summmary: "typo" } as never), /Unknown field "summmary"/);
     assert.equal(registry.updateState("run_1", "starting", { runtime: "sdk" }).runtime, "sdk");
     assert.throws(() => registry.updateState("run_1", "running", { runtime: "subprocess" }), /runtime is already sdk/);
     assert.equal(registry.updateState("run_1", "running").status, "running");
