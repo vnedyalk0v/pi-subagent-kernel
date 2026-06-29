@@ -35,9 +35,9 @@ export interface JsonSchema {
 }
 
 export interface NotImplementedToolResultDetails {
-  tool: Exclude<SubagentToolName, "subagent_spawn" | "subagent_status">;
+  tool: "subagent_cancel";
   status: "not_implemented";
-  issue: 16 | 17;
+  issue: 17;
   reason: string;
 }
 
@@ -64,7 +64,17 @@ export interface StatusToolResultDetails {
   message: string;
 }
 
-export type SubagentToolResultDetails = NotImplementedToolResultDetails | SpawnToolResultDetails | StatusToolResultDetails;
+export interface ResultToolResultDetails {
+  tool: "subagent_result";
+  status: RunStatus["status"];
+  id: string;
+  run: RunStatus;
+  result?: RunEnvelope;
+  error?: RunError;
+  message: string;
+}
+
+export type SubagentToolResultDetails = NotImplementedToolResultDetails | SpawnToolResultDetails | StatusToolResultDetails | ResultToolResultDetails;
 
 export interface PiToolDefinition {
   name: SubagentToolName;
@@ -105,8 +115,25 @@ export function createSubagentTools(services: SubagentToolServices = createSubag
   return [
     spawnTool(services),
     statusTool(services),
-    placeholderTool("subagent_result", "Subagent Result", "Retrieve a completed or failed subagent result.", resultParameters, 16),
-    placeholderTool("subagent_cancel", "Subagent Cancel", "Cancel a subagent run.", cancelParameters, 17),
+    resultTool(services),
+    {
+      name: "subagent_cancel",
+      label: "Subagent Cancel",
+      description: "Register-only MVP placeholder. Cancel a subagent run. Implementation arrives in issue #17.",
+      promptSnippet: "Cancel a subagent run. Implementation arrives in issue #17.",
+      promptGuidelines: ["Use subagent_cancel only when the user explicitly asks for subagent run management."],
+      parameters: cancelParameters,
+      async execute(_toolCallId, _params, signal) {
+        if (signal?.aborted) {
+          throw new Error("Operation aborted");
+        }
+        const reason = "This tool is registered, but implementation is tracked by issue #17.";
+        return {
+          content: [{ type: "text", text: `subagent_cancel is registered. ${reason}` }],
+          details: { tool: "subagent_cancel", status: "not_implemented", issue: 17, reason },
+        };
+      },
+    },
   ];
 }
 
@@ -224,7 +251,7 @@ function spawnTool(services: SubagentToolServices): PiToolDefinition {
             },
           }
         : {
-            content: [{ type: "text", text: `Started mock ${agent.name} subagent as ${run.id}. Use subagent_status or subagent_result after those tools are implemented.` }],
+            content: [{ type: "text", text: `Started mock ${agent.name} subagent as ${run.id}. Use subagent_status or subagent_result to inspect it.` }],
             details: {
               tool: "subagent_spawn",
               status: status.status,
@@ -283,6 +310,41 @@ function statusTool(services: SubagentToolServices): PiToolDefinition {
   };
 }
 
+function resultTool(services: SubagentToolServices): PiToolDefinition {
+  return {
+    name: "subagent_result",
+    label: "Subagent Result",
+    description: "Return a stored RunEnvelope, or current status if the run is not finished.",
+    promptSnippet: "Fetch the final result for a subagent run by ID.",
+    promptGuidelines: ["Use subagent_result when the user asks for final output from a known run ID."],
+    parameters: resultParameters,
+    async execute(_toolCallId, params, signal) {
+      if (signal?.aborted) {
+        throw new Error("Operation aborted");
+      }
+
+      const request = parseResultToolInput(params);
+      const result = services.runs.result(request.id);
+      const run = services.runs.status(request.id);
+      const record = services.runs.get(request.id);
+      const message = result ? `Run ${run.id} result is ${result.status}: ${result.summary}` : `Run ${run.id} is ${run.status}; result is not available yet.`;
+
+      return {
+        content: [{ type: "text", text: message }],
+        details: {
+          tool: "subagent_result",
+          status: result?.status ?? run.status,
+          id: run.id,
+          run,
+          ...(result !== undefined ? { result } : {}),
+          ...(record?.error !== undefined ? { error: record.error } : {}),
+          message,
+        },
+      };
+    },
+  };
+}
+
 function runMockBackend(input: SpawnInput, runtime: ExecutionBackendId, startedAt: string): RunEnvelope {
   const endedAt = new Date(Date.parse(startedAt) + 1).toISOString();
   return parseRunEnvelope({
@@ -306,29 +368,6 @@ function runMockBackend(input: SpawnInput, runtime: ExecutionBackendId, startedA
   });
 }
 
-function placeholderTool(
-  name: Exclude<SubagentToolName, "subagent_spawn" | "subagent_status">,
-  label: string,
-  action: string,
-  parameters: JsonSchema,
-  issue: 16 | 17,
-): PiToolDefinition {
-  return {
-    name,
-    label,
-    description: `Register-only MVP placeholder. ${action} Implementation arrives in issue #${issue}.`,
-    promptSnippet: `${action} Implementation arrives in issue #${issue}.`,
-    promptGuidelines: [`Use ${name} only when the user explicitly asks for subagent run management.`],
-    parameters,
-    async execute(_toolCallId, _params, signal) {
-      if (signal?.aborted) {
-        throw new Error("Operation aborted");
-      }
-      return notImplemented(name, issue);
-    },
-  };
-}
-
 function objectSchema(properties: Record<string, JsonSchema>, required: string[] = []): JsonSchema {
   return {
     type: "object",
@@ -346,19 +385,12 @@ function enumSchema(values: readonly string[], description: string): JsonSchema 
   return { type: "string", enum: values, description };
 }
 
-function notImplemented(
-  toolName: Exclude<SubagentToolName, "subagent_spawn" | "subagent_status">,
-  issue: 16 | 17,
-): { content: TextContent[]; details: NotImplementedToolResultDetails } {
-  const reason = `This tool is registered, but implementation is tracked by issue #${issue}.`;
-  return {
-    content: [{ type: "text", text: `${toolName} is registered. ${reason}` }],
-    details: { tool: toolName, status: "not_implemented", issue, reason },
-  };
-}
-
 interface StatusToolInput {
   id?: string;
+}
+
+interface ResultToolInput {
+  id: string;
 }
 
 interface SpawnToolInput {
@@ -380,6 +412,7 @@ interface SpawnToolInput {
 
 const SPAWN_KEYS = new Set(["agent", "task", "mode", "runtime", "context", "limits", "outputSchema"]);
 const STATUS_KEYS = new Set(["id", "includeRecentEvents"]);
+const RESULT_KEYS = new Set(["id", "includeArtifacts", "includeEvents"]);
 const CONTEXT_KEYS = new Set(["inherit", "files", "includeDiff"]);
 const LIMIT_KEYS = new Set(["maxRuntimeSec", "maxCostUsd"]);
 
@@ -413,6 +446,19 @@ function parseStatusToolInput(input: unknown): StatusToolInput {
     readBoolean(own(value, "includeRecentEvents"), "includeRecentEvents");
   }
   return own(value, "id") !== undefined ? { id: readString(own(value, "id"), "id") } : {};
+}
+
+function parseResultToolInput(input: unknown): ResultToolInput {
+  const value = readRecord(input, "$", "Result input must be an object.");
+  rejectUnknown(value, RESULT_KEYS, "");
+
+  if (own(value, "includeArtifacts") !== undefined) {
+    readBoolean(own(value, "includeArtifacts"), "includeArtifacts");
+  }
+  if (own(value, "includeEvents") !== undefined) {
+    readBoolean(own(value, "includeEvents"), "includeEvents");
+  }
+  return { id: readString(own(value, "id"), "id") };
 }
 
 function readContext(input: unknown): NonNullable<SpawnToolInput["context"]> {

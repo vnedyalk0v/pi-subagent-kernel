@@ -18,13 +18,14 @@ describe("Pi extension entrypoint", () => {
     }
     assert.doesNotMatch(registered[0]?.description ?? "", /placeholder/i);
     assert.doesNotMatch(registered[1]?.description ?? "", /placeholder/i);
-    for (const tool of registered.slice(2)) {
+    assert.doesNotMatch(registered[2]?.description ?? "", /placeholder/i);
+    for (const tool of registered.slice(3)) {
       assert.match(tool.description, /placeholder/i);
     }
   });
 
-  it("keeps result and cancel tools as structured placeholders", async () => {
-    for (const tool of createSubagentTools().slice(2)) {
+  it("keeps cancel as a structured placeholder", async () => {
+    for (const tool of createSubagentTools().slice(3)) {
       const params = validParams(tool.name);
       const result = await tool.execute("call_1", params);
 
