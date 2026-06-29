@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 
 import { parseRunStatus, type ExecutionBackendId, type RunStatus } from "../contracts/execution-backend.ts";
 import { RUN_ENVELOPE_RUNTIMES, parseRunEnvelope, type RunArtifactRef, type RunEnvelope, type RunError } from "../contracts/run-envelope.ts";
@@ -117,6 +118,9 @@ export class RunRegistry {
     const parsed = parseCreateRunInput(input);
     const id = parseRunId(parsed.id ?? this.#idGenerator(), "id");
 
+    if (parsed.parentRunId === id) {
+      throw new RunRegistryValidationError("run", [{ path: "parentRunId", message: "parentRunId must not equal id." }]);
+    }
     if (this.#runs.has(id)) {
       throw new DuplicateRunIdError(id);
     }
@@ -195,6 +199,12 @@ export class RunRegistry {
     }
     if (current.startedAt && envelope.startedAt && envelope.startedAt !== current.startedAt) {
       throw new RunRegistryValidationError("run result", [{ path: "startedAt", message: "Result startedAt must match the run record." }]);
+    }
+    if (current.endedAt && envelope.endedAt && envelope.endedAt !== current.endedAt) {
+      throw new RunRegistryValidationError("run result", [{ path: "endedAt", message: "Result endedAt must match the run record." }]);
+    }
+    if (current.error && envelope.error && !isDeepStrictEqual(envelope.error, current.error)) {
+      throw new RunRegistryValidationError("run result", [{ path: "error", message: "Result error must match the run record." }]);
     }
     if (current.status !== envelope.status) {
       assertTransition(current, envelope.status, envelope.runtime, envelope.error);

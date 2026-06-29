@@ -66,6 +66,9 @@ describe("RunRegistry", () => {
 
     const inherited = Object.create({ agent: "scout", task: "Inspect", runtime: "sdk" });
     assert.throws(() => registry.create(inherited), /agent is required/);
+
+    const generatedSelfParent = new RunRegistry({ now, idGenerator: () => "run_self" });
+    assert.throws(() => generatedSelfParent.create({ agent: "scout", task: "Inspect", parentRunId: "run_self" }), /parentRunId must not equal id/);
   });
 
   it("updates lifecycle state through the documented happy path", () => {
@@ -153,6 +156,7 @@ describe("RunRegistry", () => {
       ...completedEnvelope("run_expire"),
       status: "failed",
       summary: "Failed after timeout.",
+      endedAt: "2026-06-26T10:00:00.000Z",
       error: timeoutError,
     });
     assert.equal(failed.status, "failed");
@@ -173,6 +177,38 @@ describe("RunRegistry", () => {
     assert.equal(registry.status("run_1").summary, "Scout completed.");
     assert.deepEqual(registry.get("run_1")?.artifacts.map((artifact) => artifact.name), ["result.json"]);
     assert.throws(() => registry.storeResult(completedEnvelope()), /Result already stored/);
+  });
+
+  it("preserves terminal metadata when storing delayed results", () => {
+    const registry = new RunRegistry({ now });
+    registry.create({ id: "run_done", agent: "scout", task: "Inspect README.md", runtime: "sdk" });
+    registry.updateState("run_done", "starting");
+    registry.updateState("run_done", "running");
+    registry.updateState("run_done", "completed", { summary: "Done" });
+
+    assert.throws(() => registry.storeResult(completedEnvelope("run_done")), /Result endedAt must match/);
+    assert.equal(registry.storeResult({ ...completedEnvelope("run_done"), endedAt: "2026-06-26T10:00:00.000Z" }).status, "completed");
+
+    const failedRegistry = new RunRegistry({ now });
+    failedRegistry.create({ id: "run_failed", agent: "scout", task: "Inspect README.md", runtime: "sdk" });
+    failedRegistry.updateState("run_failed", "starting");
+    failedRegistry.updateState("run_failed", "running");
+    failedRegistry.updateState("run_failed", "failed", { error: timeoutError });
+
+    assert.throws(
+      () =>
+        failedRegistry.storeResult({
+          ...completedEnvelope("run_failed"),
+          status: "failed",
+          endedAt: "2026-06-26T10:00:00.000Z",
+          error: { code: "other", message: "Different failure.", retryable: false },
+        }),
+      /Result error must match/,
+    );
+    assert.equal(
+      failedRegistry.storeResult({ ...completedEnvelope("run_failed"), status: "failed", endedAt: "2026-06-26T10:00:00.000Z", error: timeoutError }).status,
+      "failed",
+    );
   });
 
   it("rejects invalid result envelopes and unknown runs", () => {
