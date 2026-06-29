@@ -170,6 +170,25 @@ Body.
     );
   });
 
+  it("rejects non-scalar YAML mapping keys", () => {
+    assert.throws(
+      () =>
+        parsePiAgentMarkdown(
+          `---
+name: scout
+description: Read-only explorer.
+outputSchema:
+  ? [type]
+  : string
+---
+Body.
+`,
+          "complex-key.md",
+        ),
+      /keys/i,
+    );
+  });
+
   it("rejects empty values instead of inventing objects", () => {
     assert.throws(
       () =>

@@ -118,6 +118,7 @@ function parseYamlObject(source: string, file: string, lineOffset: number): Reco
   const document = parseDocument(source, {
     lineCounter,
     strict: true,
+    stringKeys: true,
     uniqueKeys: true,
   });
   const issues = [...document.errors, ...document.warnings].map((error) => toYamlIssue(file, error, lineOffset));
