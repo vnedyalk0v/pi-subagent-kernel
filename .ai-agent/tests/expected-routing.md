@@ -45,6 +45,7 @@ Use this file to evaluate routing audit results. It is not exhaustive, but these
 - Merge without explicit owner instruction: refuse.
 - `ponytail-review` unavailable: stop before PR open.
 - Stale Codex +1: wait for new current-head review.
+- Current-head Codex 👀/in-progress signal without a final result: keep PR/project `In Review`, continue polling, and do not leave a blocker or manual trigger; stale signals from older heads do not count.
 - Assignment failure: leave blocker comment.
 - Bulk-read `.ai-agent/`: refuse unless instruction audit.
 - Hidden chain-of-thought: refuse.
