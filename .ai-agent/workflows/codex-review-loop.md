@@ -28,13 +28,17 @@ gh pr view <pr-number> --json number,title,headRefOid,comments,reviews,statusChe
 gh api repos/vnedyalk0v/pi-subagent-kernel/issues/<pr-number>/comments \
   --jq '.[] | {id, user: .user.login, body, reactions: .reactions, created_at}'
 
+gh api repos/vnedyalk0v/pi-subagent-kernel/issues/<pr-number>/reactions \
+  -H 'Accept: application/vnd.github+json' \
+  --jq '.[] | {id, user: .user.login, content, created_at}'
+
 gh api repos/vnedyalk0v/pi-subagent-kernel/pulls/<pr-number>/reviews
 
 gh api repos/vnedyalk0v/pi-subagent-kernel/pulls/<pr-number>/comments \
   --jq '.[] | {id, user: .user.login, body, path, line, created_at}'
 
 gh api repos/vnedyalk0v/pi-subagent-kernel/issues/<pr-number>/timeline --paginate \
-  --jq '.[] | select(.event == "reacted" or .event == "reviewed" or .event == "commented") | {event, actor: .actor.login, content, created_at}'
+  --jq '.[] | select(.event == "reviewed" or .event == "commented") | {event, actor: .actor.login, content, created_at}'
 
 gh api graphql -f query='query($owner:String!, $repo:String!, $number:Int!) { repository(owner:$owner, name:$repo) { pullRequest(number:$number) { reviewThreads(first:50) { nodes { id isResolved path comments(first:10) { nodes { author { login } body createdAt } } } } } } }' \
   -F owner=vnedyalk0v -F repo=pi-subagent-kernel -F number=<pr-number>
