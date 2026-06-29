@@ -51,6 +51,21 @@ describe("built-in agent definitions", () => {
     assert.equal(registry.get("REVIEWER")?.outputSchema, "review_findings_v1");
   });
 
+  it("preserves existing higher-priority registry entries", () => {
+    const registry = new AgentRegistry();
+    const projectTester = registry.register({
+      name: "tester",
+      description: "Project-specific tester.",
+      instructions: "Use project validation rules.",
+    });
+
+    const registered = registerBuiltInAgents(registry);
+
+    assert.deepEqual(registered.map((agent) => agent.name), ["scout", "reviewer", "summarizer"]);
+    assert.equal(registry.get("tester"), projectTester);
+    assert.deepEqual(registry.list().map((agent) => agent.name), ["tester", "scout", "reviewer", "summarizer"]);
+  });
+
   it("freezes the exported definitions", () => {
     assert.throws(
       () => (BUILT_IN_AGENT_DEFINITIONS as AgentDefinition[]).push(BUILT_IN_AGENT_DEFINITIONS[0]!),

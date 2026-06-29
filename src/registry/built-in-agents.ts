@@ -138,5 +138,13 @@ Return:
 export const BUILT_IN_AGENT_DEFINITIONS: readonly AgentDefinition[] = Object.freeze(parseAgentDefinitions(builtInAgentInputs));
 
 export function registerBuiltInAgents(registry: AgentRegistry): AgentDefinition[] {
-  return BUILT_IN_AGENT_DEFINITIONS.map((definition) => registry.register(definition));
+  const registered: AgentDefinition[] = [];
+
+  for (const definition of BUILT_IN_AGENT_DEFINITIONS) {
+    if (!registry.get(definition.name)) {
+      registered.push(registry.register(definition));
+    }
+  }
+
+  return registered;
 }
