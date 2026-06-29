@@ -34,13 +34,6 @@ export interface JsonSchema {
   [keyword: string]: unknown;
 }
 
-export interface NotImplementedToolResultDetails {
-  tool: "subagent_cancel";
-  status: "not_implemented";
-  issue: 17;
-  reason: string;
-}
-
 export interface SpawnToolResultDetails {
   tool: "subagent_spawn";
   status: RunStatus["status"];
@@ -74,7 +67,17 @@ export interface ResultToolResultDetails {
   message: string;
 }
 
-export type SubagentToolResultDetails = NotImplementedToolResultDetails | SpawnToolResultDetails | StatusToolResultDetails | ResultToolResultDetails;
+export interface CancelToolResultDetails {
+  tool: "subagent_cancel";
+  status: RunStatus["status"];
+  id: string;
+  run: RunStatus;
+  cancelled: boolean;
+  backendCancel: { called: boolean; mock: true; reason: string };
+  message: string;
+}
+
+export type SubagentToolResultDetails = SpawnToolResultDetails | StatusToolResultDetails | ResultToolResultDetails | CancelToolResultDetails;
 
 export interface PiToolDefinition {
   name: SubagentToolName;
@@ -116,24 +119,7 @@ export function createSubagentTools(services: SubagentToolServices = createSubag
     spawnTool(services),
     statusTool(services),
     resultTool(services),
-    {
-      name: "subagent_cancel",
-      label: "Subagent Cancel",
-      description: "Register-only MVP placeholder. Cancel a subagent run. Implementation arrives in issue #17.",
-      promptSnippet: "Cancel a subagent run. Implementation arrives in issue #17.",
-      promptGuidelines: ["Use subagent_cancel only when the user explicitly asks for subagent run management."],
-      parameters: cancelParameters,
-      async execute(_toolCallId, _params, signal) {
-        if (signal?.aborted) {
-          throw new Error("Operation aborted");
-        }
-        const reason = "This tool is registered, but implementation is tracked by issue #17.";
-        return {
-          content: [{ type: "text", text: `subagent_cancel is registered. ${reason}` }],
-          details: { tool: "subagent_cancel", status: "not_implemented", issue: 17, reason },
-        };
-      },
-    },
+    cancelTool(services),
   ];
 }
 
@@ -349,6 +335,62 @@ function resultTool(services: SubagentToolServices): PiToolDefinition {
   };
 }
 
+function cancelTool(services: SubagentToolServices): PiToolDefinition {
+  return {
+    name: "subagent_cancel",
+    label: "Subagent Cancel",
+    description: "Cancel one queued or active in-memory subagent run.",
+    promptSnippet: "Cancel a subagent run by ID.",
+    promptGuidelines: ["Use subagent_cancel when the user asks to stop a known run ID."],
+    parameters: cancelParameters,
+    async execute(_toolCallId, params, signal) {
+      if (signal?.aborted) {
+        throw new Error("Operation aborted");
+      }
+
+      const request = parseCancelToolInput(params);
+      const current = services.runs.status(request.id);
+      const reason = request.reason ?? "Cancellation requested.";
+      if (current.endedAt) {
+        const message = `Run ${current.id} is already ${current.status}; no cancellation needed.`;
+        return {
+          content: [{ type: "text", text: message }],
+          details: {
+            tool: "subagent_cancel",
+            status: current.status,
+            id: current.id,
+            run: current,
+            cancelled: false,
+            backendCancel: { called: false, mock: true, reason: "Run is already terminal." },
+            message,
+          },
+        };
+      }
+
+      const backendCalled = current.status !== "queued" && current.runtime !== undefined;
+      const run = services.runs.updateState(current.id, "cancelled", { summary: reason });
+      const status = services.runs.status(run.id);
+      const message = `Run ${status.id} cancelled.`;
+      return {
+        content: [{ type: "text", text: message }],
+        details: {
+          tool: "subagent_cancel",
+          status: status.status,
+          id: status.id,
+          run: status,
+          cancelled: true,
+          backendCancel: {
+            called: backendCalled,
+            mock: true,
+            reason: backendCalled ? "Mock backend cancel acknowledged; no OS process was killed." : "No backend had started for this queued run.",
+          },
+          message,
+        },
+      };
+    },
+  };
+}
+
 function runMockBackend(input: SpawnInput, runtime: ExecutionBackendId, startedAt: string): RunEnvelope {
   const endedAt = new Date(Date.parse(startedAt) + 1).toISOString();
   return parseRunEnvelope({
@@ -398,6 +440,11 @@ interface ResultToolInput {
   includeArtifacts: boolean;
 }
 
+interface CancelToolInput {
+  id: string;
+  reason?: string;
+}
+
 interface SpawnToolInput {
   agent: string;
   task: string;
@@ -418,6 +465,7 @@ interface SpawnToolInput {
 const SPAWN_KEYS = new Set(["agent", "task", "mode", "runtime", "context", "limits", "outputSchema"]);
 const STATUS_KEYS = new Set(["id", "includeRecentEvents"]);
 const RESULT_KEYS = new Set(["id", "includeArtifacts", "includeEvents"]);
+const CANCEL_KEYS = new Set(["id", "reason"]);
 const CONTEXT_KEYS = new Set(["inherit", "files", "includeDiff"]);
 const LIMIT_KEYS = new Set(["maxRuntimeSec", "maxCostUsd"]);
 
@@ -474,6 +522,16 @@ function parseResultToolInput(input: unknown): ResultToolInput {
     readBoolean(own(value, "includeEvents"), "includeEvents");
   }
   return { id: readString(own(value, "id"), "id"), includeArtifacts };
+}
+
+function parseCancelToolInput(input: unknown): CancelToolInput {
+  const value = readRecord(input, "$", "Cancel input must be an object.");
+  rejectUnknown(value, CANCEL_KEYS, "");
+
+  return {
+    id: readString(own(value, "id"), "id"),
+    ...(own(value, "reason") !== undefined ? { reason: readString(own(value, "reason"), "reason") } : {}),
+  };
 }
 
 function readContext(input: unknown): NonNullable<SpawnToolInput["context"]> {
