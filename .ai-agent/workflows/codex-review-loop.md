@@ -13,11 +13,11 @@ A PR is not ready for owner review until the latest `codex-connector bot` result
 For a current head commit:
 
 1. Confirm the current head SHA before every polling pass.
-2. Check all current-head Codex signals, not only PR reviews: PR/issue comments, pull reviews, review comments/threads, status checks, reactions, and timeline events.
-3. Treat 👀 / `eyes`, queued/in-progress checks, "review started" text, or any current-head `codex-connector bot` activity as automatic review activity. For signals without a commit ID, count them only when their timestamp is after the latest head push/review request; for review-comment reactions, use the parent comment `commit_id`; do not count stale signals from older heads.
+2. Check all current-head Codex-owned signals, not only PR reviews: PR/issue comments, pull reviews, review comments/threads, status checks, reactions, and timeline events. Codex-owned means the actor, app, author, check name, or reaction user is `codex-connector`, `chatgpt-codex-connector`, or their bot form; ignore maintainer 👀 reactions and unrelated queued checks.
+3. Treat Codex-owned 👀 / `eyes`, queued/in-progress checks, "review started" text, or any current-head `codex-connector bot` activity as automatic review activity. For signals without a commit ID, count them only when their timestamp is after the latest head push/review request; for review-comment reactions, use the parent comment `commit_id`; do not count stale signals from older heads.
 4. Poll at least 3 times over at least 10 minutes unless a final Codex result appears sooner. Wait between polls according to harness capabilities; do not create background promises.
-5. While any current-head in-progress signal exists, keep the PR/project `In Review`, continue polling, and do not post a blocker or manual trigger.
-6. Only if no current-head Codex signal exists after the polling window, leave a blocker comment and ask the owner for direction.
+5. While any Codex-owned current-head in-progress signal exists and is not stalled, keep the PR/project `In Review`, continue polling, and do not post a blocker or manual trigger.
+6. After the polling window, leave a blocker comment and ask the owner for direction if no Codex-owned current-head signal exists, if the only current-head Codex signals are failed/cancelled/error signals, or if the latest in-progress signal is stalled for 30 minutes without a new Codex update or final review.
 7. Do not post more than one manual `@codex review` for the same head commit, and only do so after owner approval or confirmed auto-review failure.
 
 ## Useful checks
