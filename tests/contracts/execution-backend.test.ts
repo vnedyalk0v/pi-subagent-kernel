@@ -210,6 +210,25 @@ describe("ExecutionBackend", () => {
     );
   });
 
+  it("allows cancelling queued runs before runtime selection", () => {
+    const status = parseRunStatus({
+      id: "run_mock_1",
+      agent: "scout",
+      status: "cancelled",
+      endedAt: "2026-06-26T10:00:01.000Z",
+    });
+
+    assert.equal(status.status, "cancelled");
+    assert.equal(status.runtime, undefined);
+  });
+
+  it("requires start times for active run statuses", () => {
+    assert.throws(
+      () => parseRunStatus({ id: "run_mock_1", agent: "scout", runtime: "sdk", status: "running" }),
+      /running run statuses require startedAt/,
+    );
+  });
+
   it("rejects terminal run statuses without start and end timestamps", () => {
     assert.throws(
       () => parseRunStatus({ id: "run_mock_1", agent: "scout", runtime: "sdk", status: "completed" }),

@@ -137,11 +137,18 @@ export function validateRunStatus(input: unknown): ValidationResult<RunStatus> {
   if (startedAt && endedAt && Date.parse(endedAt) < Date.parse(startedAt)) {
     issues.push({ path: "endedAt", message: "endedAt must not be earlier than startedAt." });
   }
-  if (status && status !== "queued" && !hasRuntime) {
+  if (status && status !== "queued" && status !== "cancelled" && !hasRuntime) {
     issues.push({ path: "runtime", message: "runtime is required once a run leaves queued." });
   }
+  if (status && isActiveStatus(status) && !startedAt) {
+    issues.push({ path: "startedAt", message: `${status} run statuses require startedAt.` });
+  }
   if (status && isTerminalStatus(status) && (!startedAt || !endedAt)) {
-    issues.push({ path: "endedAt", message: `${status} run statuses require startedAt and endedAt.` });
+    if (status === "cancelled" && !hasRuntime && endedAt) {
+      // queued -> cancelled may happen before backend/runtime selection.
+    } else {
+      issues.push({ path: "endedAt", message: `${status} run statuses require startedAt and endedAt.` });
+    }
   }
 
   if (issues.length > 0 || !id || !agent || !status) {
@@ -370,6 +377,10 @@ function readOptionalIsoDate(value: unknown, path: string, issues: ValidationIss
     return undefined;
   }
   return parsed;
+}
+
+function isActiveStatus(status: RunState): boolean {
+  return status === "starting" || status === "running" || status === "waiting_for_input";
 }
 
 function isTerminalStatus(status: RunState): boolean {
