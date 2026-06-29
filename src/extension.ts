@@ -1,9 +1,8 @@
-/**
- * Minimal extension shell for the package scaffold.
- * Issue #9 wires this to verified Pi extension APIs.
- */
-export default function extension(): void {
-  // Intentionally no side effects yet.
+import { registerSubagentTools, type PiExtensionApi } from "./tools/subagent-tools.ts";
+
+/** Pi extension entrypoint. Keep startup side effects limited to registration. */
+export default function extension(pi: PiExtensionApi): void {
+  registerSubagentTools(pi);
 }
 
 export const activate = extension;
