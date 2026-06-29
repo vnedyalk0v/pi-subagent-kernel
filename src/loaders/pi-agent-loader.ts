@@ -131,7 +131,11 @@ function parseYamlObject(source: string, file: string): Record<string, unknown> 
       if (!Array.isArray(parent.value)) {
         throw yamlError(file, line, "Unexpected list item; expected a key/value pair.");
       }
-      parent.value.push(parseScalar(line.text.slice(1).trim(), file, line.line));
+      const raw = line.text.slice(1).trim();
+      if (/^[A-Za-z][A-Za-z0-9_-]*:\s+/.test(raw)) {
+        throw yamlError(file, line, "List item mappings are not supported by the MVP YAML parser.");
+      }
+      parent.value.push(parseScalar(raw, file, line.line));
       return;
     }
 

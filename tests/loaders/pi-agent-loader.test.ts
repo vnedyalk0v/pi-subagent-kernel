@@ -103,6 +103,25 @@ Body.
     );
   });
 
+  it("rejects YAML list item mappings instead of corrupting schemas", () => {
+    assert.throws(
+      () =>
+        parsePiAgentMarkdown(
+          `---
+name: scout
+description: Read-only explorer.
+outputSchema:
+  oneOf:
+    - type: string
+---
+Body.
+`,
+          "list-mapping.md",
+        ),
+      /List item mappings are not supported/,
+    );
+  });
+
   it("rejects duplicate names across files", async () => {
     await withTempRoot(async (root) => {
       await writeAgent(root, "first.md", validScout);
