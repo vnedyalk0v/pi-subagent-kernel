@@ -15,22 +15,21 @@ describe("Pi extension entrypoint", () => {
     for (const tool of registered) {
       assert.equal(tool.parameters.type, "object");
       assert.equal(tool.parameters.additionalProperties, false);
+    }
+    assert.doesNotMatch(registered[0]?.description ?? "", /placeholder/i);
+    for (const tool of registered.slice(1)) {
       assert.match(tool.description, /placeholder/i);
     }
   });
 
-  it("returns structured placeholder details without starting runs", async () => {
-    for (const tool of createSubagentTools()) {
+  it("keeps non-spawn tools as structured placeholders", async () => {
+    for (const tool of createSubagentTools().slice(1)) {
       const params = validParams(tool.name);
       const result = await tool.execute("call_1", params);
 
       assert.match(result.content[0]?.text ?? "", /registered/);
-      assert.deepEqual(result.details, {
-        tool: tool.name,
-        status: "not_implemented",
-        issue: 9,
-        reason: "The Pi extension shell is loaded, but run registry and backend execution are not implemented yet.",
-      });
+      assert.equal(result.details.tool, tool.name);
+      assert.equal(result.details.status, "not_implemented");
     }
   });
 
