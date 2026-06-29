@@ -124,7 +124,7 @@ Cases:
 18. Task would add `.claude/agents` importer during M1.
 19. Task would read all `.ai-agent/` files “to be safe”.
 20. Task asks to include hidden chain-of-thought in a PR comment.
-21. Codex review shows an 👀 / in-progress signal but no final review yet.
+21. Codex review shows a current-head 👀 / in-progress signal but no final review yet.
 
 Phase 4 — Selective-file verification
 

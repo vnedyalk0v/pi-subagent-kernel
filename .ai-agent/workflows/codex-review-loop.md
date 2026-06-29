@@ -14,7 +14,7 @@ For a current head commit:
 
 1. Confirm the current head SHA before every polling pass.
 2. Check all current-head Codex signals, not only PR reviews: PR/issue comments, pull reviews, review comments/threads, status checks, reactions, and timeline events.
-3. Treat 👀 / `eyes`, queued/in-progress checks, "review started" text, or any current-head `codex-connector bot` activity as automatic review activity. For signals without a commit ID, count them only when their timestamp is after the latest head push/review request; do not count stale signals from older heads.
+3. Treat 👀 / `eyes`, queued/in-progress checks, "review started" text, or any current-head `codex-connector bot` activity as automatic review activity. For signals without a commit ID, count them only when their timestamp is after the latest head push/review request; for review-comment reactions, use the parent comment `commit_id`; do not count stale signals from older heads.
 4. Poll at least 3 times over at least 10 minutes unless a final Codex result appears sooner. Wait between polls according to harness capabilities; do not create background promises.
 5. While any current-head in-progress signal exists, keep the PR/project `In Review`, continue polling, and do not post a blocker or manual trigger.
 6. Only if no current-head Codex signal exists after the polling window, leave a blocker comment and ask the owner for direction.
@@ -29,28 +29,28 @@ gh api repos/vnedyalk0v/pi-subagent-kernel/issues/<pr-number>/comments --paginat
   --jq '.[] | {id, user: .user.login, body, reactions: .reactions, created_at}'
 
 gh api repos/vnedyalk0v/pi-subagent-kernel/issues/<pr-number>/comments --paginate --jq '.[].id' | while read -r comment_id; do
-  gh api repos/vnedyalk0v/pi-subagent-kernel/issues/comments/$comment_id/reactions \
+  gh api repos/vnedyalk0v/pi-subagent-kernel/issues/comments/$comment_id/reactions --paginate \
     -H 'Accept: application/vnd.github+json' \
     --jq ".[] | {comment_id: $comment_id, user: .user.login, content, created_at}"
 done
 
-gh api repos/vnedyalk0v/pi-subagent-kernel/issues/<pr-number>/reactions \
+gh api repos/vnedyalk0v/pi-subagent-kernel/issues/<pr-number>/reactions --paginate \
   -H 'Accept: application/vnd.github+json' \
   --jq '.[] | {id, user: .user.login, content, created_at}'
 
-gh api repos/vnedyalk0v/pi-subagent-kernel/pulls/<pr-number>/reviews
+gh api repos/vnedyalk0v/pi-subagent-kernel/pulls/<pr-number>/reviews --paginate
 
 gh api repos/vnedyalk0v/pi-subagent-kernel/pulls/<pr-number>/comments --paginate \
-  --jq '.[] | {id, user: .user.login, body, path, line, created_at}'
+  --jq '.[] | {id, commit_id, user: .user.login, body, path, line, created_at}'
 
-gh api repos/vnedyalk0v/pi-subagent-kernel/pulls/<pr-number>/comments --paginate --jq '.[].id' | while read -r comment_id; do
-  gh api repos/vnedyalk0v/pi-subagent-kernel/pulls/comments/$comment_id/reactions \
+gh api repos/vnedyalk0v/pi-subagent-kernel/pulls/<pr-number>/comments --paginate --jq '.[] | [.id, .commit_id] | @tsv' | while read -r comment_id commit_id; do
+  gh api repos/vnedyalk0v/pi-subagent-kernel/pulls/comments/$comment_id/reactions --paginate \
     -H 'Accept: application/vnd.github+json' \
-    --jq ".[] | {comment_id: $comment_id, user: .user.login, content, created_at}"
+    --jq ".[] | {comment_id: $comment_id, commit_id: \"$commit_id\", user: .user.login, content, created_at}"
 done
 
 gh api repos/vnedyalk0v/pi-subagent-kernel/issues/<pr-number>/timeline --paginate \
-  --jq '.[] | select(.event == "reviewed" or .event == "commented") | {event, actor: .actor.login, content, created_at}'
+  --jq '.[] | select(.event == "reviewed" or .event == "commented") | {event, actor: (.actor.login // .user.login), user: .user.login, body, content, commit_id, state, created_at, submitted_at}'
 
 gh api graphql -f query='query($owner:String!, $repo:String!, $number:Int!) { repository(owner:$owner, name:$repo) { pullRequest(number:$number) { reviewThreads(first:50) { nodes { id isResolved path comments(first:10) { nodes { author { login } body createdAt } } } } } } }' \
   -F owner=vnedyalk0v -F repo=pi-subagent-kernel -F number=<pr-number>
