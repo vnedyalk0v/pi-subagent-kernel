@@ -118,7 +118,7 @@ export class RunRegistry {
       throw new DuplicateRunIdError(id);
     }
 
-    const record = freezeRecord({
+    const record = deepFreeze<RunRecord>({
       id,
       agent: parsed.agent,
       task: parsed.task,
@@ -148,14 +148,17 @@ export class RunRegistry {
     const current = this.#require(id);
 
     const timestamp = this.#timestamp();
-    const runtime = patch.runtime ?? current.runtime;
+    if (current.runtime && patch.runtime && patch.runtime !== current.runtime) {
+      throw new RunRegistryValidationError("run transition", [{ path: "runtime", message: `runtime is already ${current.runtime}.` }]);
+    }
+    const runtime = current.runtime ?? patch.runtime;
     const error = patch.error ?? current.error;
     assertTransition(current, state, runtime, error);
 
     const startedAt = current.startedAt ?? (ACTIVE_STATES.has(state) || (TERMINAL_STATES.has(state) && runtime) ? timestamp : undefined);
     const endedAt = TERMINAL_STATES.has(state) ? timestamp : undefined;
 
-    const next = freezeRecord({
+    const next = deepFreeze<RunRecord>({
       ...current,
       ...patch,
       status: state,
@@ -184,11 +187,14 @@ export class RunRegistry {
     if (current.runtime && envelope.runtime !== current.runtime) {
       throw new RunRegistryValidationError("run result", [{ path: "runtime", message: `Result runtime must match run runtime ${current.runtime}.` }]);
     }
+    if (current.parentRunId !== undefined && envelope.parentRunId !== undefined && envelope.parentRunId !== current.parentRunId) {
+      throw new RunRegistryValidationError("run result", [{ path: "parentRunId", message: "Result parentRunId must match the run record." }]);
+    }
     if (current.status !== envelope.status) {
       assertTransition(current, envelope.status, envelope.runtime, envelope.error);
     }
 
-    const record = freezeRecord({
+    const record = deepFreeze<RunRecord>({
       ...current,
       status: envelope.status,
       runtime: envelope.runtime,
@@ -355,9 +361,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function freezeRecord(record: RunRecord): RunRecord {
-  Object.freeze(record.artifacts);
-  return Object.freeze(record);
+function deepFreeze<T>(value: T): T {
+  if (value && typeof value === "object") {
+    Object.values(value).forEach(deepFreeze);
+    Object.freeze(value);
+  }
+  return value;
 }
 
 function fail(kind: string, path: string, message: string): never {

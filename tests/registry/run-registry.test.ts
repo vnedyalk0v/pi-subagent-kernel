@@ -105,12 +105,17 @@ describe("RunRegistry", () => {
 
     assert.throws(() => registry.updateState("run_1", "starting"), /runtime is required before moving to starting/);
     assert.equal(registry.updateState("run_1", "starting", { runtime: "sdk" }).runtime, "sdk");
+    assert.throws(() => registry.updateState("run_1", "running", { runtime: "subprocess" }), /runtime is already sdk/);
     assert.equal(registry.updateState("run_1", "running").status, "running");
     assert.throws(() => registry.updateState("run_1", "failed"), /failed runs require a structured error/);
 
-    const failed = registry.updateState("run_1", "failed", { error: timeoutError, summary: "Timed out" });
+    const failed = registry.updateState("run_1", "failed", {
+      error: { ...timeoutError, details: { nested: { retryableAfterSec: 30 } } },
+      summary: "Timed out",
+    });
     assert.equal(failed.status, "failed");
     assert.equal(failed.error?.code, "timeout");
+    assert.throws(() => (((failed.error?.details?.nested as { retryableAfterSec: number }).retryableAfterSec = 60)), TypeError);
   });
 
   it("marks runs cancelled and expired", () => {
@@ -138,11 +143,12 @@ describe("RunRegistry", () => {
 
   it("stores and fetches a terminal result envelope", () => {
     const registry = new RunRegistry({ now });
-    registry.create({ id: "run_1", agent: "scout", task: "Inspect README.md", runtime: "sdk" });
+    registry.create({ id: "run_1", agent: "scout", task: "Inspect README.md", runtime: "sdk", parentRunId: "run_parent" });
     registry.updateState("run_1", "starting");
     registry.updateState("run_1", "running");
 
-    const envelope = registry.storeResult(completedEnvelope());
+    assert.throws(() => registry.storeResult({ ...completedEnvelope(), parentRunId: "other_parent" }), /Result parentRunId must match/);
+    const envelope = registry.storeResult({ ...completedEnvelope(), parentRunId: "run_parent" });
 
     assert.equal(envelope.status, "completed");
     assert.equal(registry.result("run_1"), envelope);
