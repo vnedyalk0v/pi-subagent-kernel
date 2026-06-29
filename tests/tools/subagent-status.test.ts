@@ -32,7 +32,7 @@ describe("subagent_status", () => {
     services.runs.create({ id: "run_a", agent: "scout", task: "Inspect files." });
     services.runs.create({ id: "run_b", agent: "tester", task: "Run tests." });
 
-    const result = await tool.execute("call_1", {});
+    const result = await tool.execute("call_1", { includeRecentEvents: true });
 
     assert.equal(result.details.tool, "subagent_status");
     assert.equal(result.details.status, "listed");

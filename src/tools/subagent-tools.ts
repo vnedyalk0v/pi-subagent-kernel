@@ -132,6 +132,7 @@ const spawnParameters = objectSchema(
 
 const statusParameters = objectSchema({
   id: stringSchema("Run ID to inspect; omit to list in-memory runs"),
+  includeRecentEvents: { type: "boolean", description: "Accepted for API compatibility; lifecycle events are not exposed yet" },
 });
 
 const resultParameters = objectSchema(
@@ -378,7 +379,7 @@ interface SpawnToolInput {
 }
 
 const SPAWN_KEYS = new Set(["agent", "task", "mode", "runtime", "context", "limits", "outputSchema"]);
-const STATUS_KEYS = new Set(["id"]);
+const STATUS_KEYS = new Set(["id", "includeRecentEvents"]);
 const CONTEXT_KEYS = new Set(["inherit", "files", "includeDiff"]);
 const LIMIT_KEYS = new Set(["maxRuntimeSec", "maxCostUsd"]);
 
@@ -408,6 +409,9 @@ function parseStatusToolInput(input: unknown): StatusToolInput {
   const value = readRecord(input, "$", "Status input must be an object.");
   rejectUnknown(value, STATUS_KEYS, "");
 
+  if (own(value, "includeRecentEvents") !== undefined) {
+    readBoolean(own(value, "includeRecentEvents"), "includeRecentEvents");
+  }
   return own(value, "id") !== undefined ? { id: readString(own(value, "id"), "id") } : {};
 }
 
