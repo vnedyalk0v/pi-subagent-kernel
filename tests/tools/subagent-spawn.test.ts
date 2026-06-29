@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { parseRunEnvelope } from "../../src/contracts/index.ts";
+import { AgentRegistry, RunRegistry } from "../../src/registry/index.ts";
 import { createSubagentTools, SubagentToolValidationError } from "../../src/tools/subagent-tools.ts";
 
 function spawnTool() {
@@ -63,6 +64,29 @@ describe("subagent_spawn", () => {
     );
   });
 
+  it("clips custom-agent limits to global policy caps", async () => {
+    const agents = new AgentRegistry();
+    agents.register({
+      name: "oversized",
+      description: "Agent with intentionally oversized limits.",
+      instructions: "Return a mock result.",
+      runtime: "sdk",
+      limits: { maxRuntimeSec: 999999, maxCostUsd: 999 },
+      context: { inherit: "summary" },
+    });
+    const tool = createSubagentTools({ agents, runs: new RunRegistry() })[0];
+
+    const result = await tool.execute("call_1", {
+      agent: "oversized",
+      task: "Do work.",
+      limits: { maxRuntimeSec: 999999, maxCostUsd: 999 },
+    });
+
+    assert.equal(result.details.tool, "subagent_spawn");
+    assert.equal(result.details.limits.maxRuntimeSec, 1800);
+    assert.equal(result.details.limits.maxCostUsd, 1);
+  });
+
   it("rejects invalid or unsupported spawn input", async () => {
     await assert.rejects(
       () => spawnTool().execute("call_1", { agent: "scout", task: "Do work.", extra: true }),
@@ -75,6 +99,10 @@ describe("subagent_spawn", () => {
     await assert.rejects(
       () => spawnTool().execute("call_1", { agent: "scout", task: "Do work.", limits: { maxRuntimeSec: 0.5 } }),
       /limits\.maxRuntimeSec must be a positive integer/,
+    );
+    await assert.rejects(
+      () => spawnTool().execute("call_1", { agent: "scout", task: "Do work.", runtime: "remote" }),
+      /runtime override "remote" is not available/,
     );
     await assert.rejects(
       () => spawnTool().execute("call_1", { agent: "scout", task: "Do work.", context: { inherit: "full" } }),

@@ -26,6 +26,8 @@ type TextContent = { type: "text"; text: string };
 type AbortSignalLike = { aborted?: boolean };
 type SpawnMode = "foreground" | "background";
 type RequestedRuntime = ExecutionBackendId | "auto";
+const GLOBAL_MAX_RUNTIME_SEC = 1800;
+const GLOBAL_MAX_COST_USD = 1;
 
 export interface JsonSchema {
   [keyword: string]: unknown;
@@ -160,13 +162,11 @@ function spawnTool(services: SubagentToolServices): PiToolDefinition {
 
       const runtime = resolveRuntime(request.runtime, agent.runtime);
       const policy = parsePermissionPolicy({});
-      const maxRuntimeCap = agent.maxRuntimeSec ?? 1800;
-      const requestedCost = request.limits?.maxCostUsd ?? agent.maxCostUsd;
+      const maxRuntimeCap = Math.min(agent.maxRuntimeSec ?? GLOBAL_MAX_RUNTIME_SEC, GLOBAL_MAX_RUNTIME_SEC);
+      const maxCostCap = Math.min(agent.maxCostUsd ?? GLOBAL_MAX_COST_USD, GLOBAL_MAX_COST_USD);
       const limits = {
         maxRuntimeSec: Math.min(request.limits?.maxRuntimeSec ?? maxRuntimeCap, maxRuntimeCap),
-        ...(requestedCost !== undefined
-          ? { maxCostUsd: agent.maxCostUsd !== undefined ? Math.min(requestedCost, agent.maxCostUsd) : requestedCost }
-          : {}),
+        maxCostUsd: Math.min(request.limits?.maxCostUsd ?? maxCostCap, maxCostCap),
       };
       const contextMode = request.context?.inherit ?? agent.inheritContext;
       const runId = `run_${randomUUID()}`;
@@ -370,8 +370,11 @@ function readLimits(input: unknown): NonNullable<SpawnToolInput["limits"]> {
 }
 
 function resolveRuntime(requested: RequestedRuntime, agentRuntime: RequestedRuntime): ExecutionBackendId {
-  const resolved = requested === "auto" ? agentRuntime : requested;
-  return resolved === "auto" ? "sdk" : resolved;
+  const fallback = agentRuntime === "auto" ? "sdk" : agentRuntime;
+  if (requested === "auto" || requested === fallback) {
+    return fallback;
+  }
+  throw new SubagentToolValidationError(`runtime: runtime override "${requested}" is not available for mock ${fallback} runs.`);
 }
 
 function readOutputSchema(value: unknown, path: string): string | Record<string, unknown> {
