@@ -17,6 +17,7 @@ describe("subagent_spawn", () => {
       task: "Inspect README.md",
       mode: "foreground",
       context: { inherit: "summary", files: ["README.md"] },
+      limits: { maxCostUsd: 0.25 },
     });
 
     assert.equal(result.details.tool, "subagent_spawn");
@@ -24,6 +25,7 @@ describe("subagent_spawn", () => {
     assert.equal(result.details.mock, true);
     assert.equal(result.details.policy.maxDepth, 1);
     assert.equal(result.details.policy.nestedSubagents, false);
+    assert.equal(result.details.limits.maxCostUsd, 0.25);
     assert.equal(result.details.status, "completed");
     assert.ok(result.details.result);
 

@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import {
   parsePermissionPolicy,
   parseRunEnvelope,
@@ -43,6 +45,7 @@ export interface SpawnToolResultDetails {
   id: string;
   run: RunStatus;
   policy: PermissionPolicy;
+  limits: { maxRuntimeSec: number; maxCostUsd?: number };
   mock: true;
   message: string;
   result?: RunEnvelope;
@@ -107,6 +110,7 @@ const spawnParameters = objectSchema(
     }),
     limits: objectSchema({
       maxRuntimeSec: { type: "number", exclusiveMinimum: 0, description: "Runtime cap in seconds" },
+      maxCostUsd: { type: "number", minimum: 0, description: "Cost cap in USD" },
     }),
     outputSchema: { anyOf: [stringSchema("Output schema name"), { type: "object" }] },
   },
@@ -156,11 +160,14 @@ function spawnTool(services: SubagentToolServices): PiToolDefinition {
 
       const runtime = resolveRuntime(request.runtime, agent.runtime);
       const policy = parsePermissionPolicy({});
-      const run = services.runs.create({ agent: agent.name, task: request.task, runtime });
-      const started = services.runs.updateState(run.id, "starting", { runtime, summary: "Starting mock backend." });
+      const limits = {
+        maxRuntimeSec: request.limits?.maxRuntimeSec ?? agent.maxRuntimeSec ?? 1800,
+        ...(request.limits?.maxCostUsd !== undefined ? { maxCostUsd: request.limits.maxCostUsd } : {}),
+      };
       const contextMode = request.context?.inherit ?? agent.inheritContext;
+      const runId = `run_${randomUUID()}`;
       const spawnInput = parseSpawnInput({
-        runId: run.id,
+        runId,
         agent,
         task: request.task,
         context: {
@@ -171,13 +178,15 @@ function spawnTool(services: SubagentToolServices): PiToolDefinition {
         },
         policy,
         limits: {
-          maxRuntimeSec: request.limits?.maxRuntimeSec ?? agent.maxRuntimeSec ?? 1800,
+          maxRuntimeSec: limits.maxRuntimeSec,
         },
         output: {
           mode: agent.resultMode ?? "json",
           ...(request.outputSchema !== undefined ? { schema: request.outputSchema } : agent.outputSchema !== undefined ? { schema: agent.outputSchema } : {}),
         },
       });
+      const run = services.runs.create({ id: runId, agent: agent.name, task: request.task, runtime });
+      const started = services.runs.updateState(run.id, "starting", { runtime, summary: "Starting mock backend." });
       services.runs.updateState(run.id, "running", { summary: `Mock ${agent.name} running.` });
       const result = runMockBackend(spawnInput, runtime, started.startedAt ?? new Date().toISOString());
       services.runs.storeResult(result);
@@ -193,6 +202,7 @@ function spawnTool(services: SubagentToolServices): PiToolDefinition {
               id: run.id,
               run: status,
               policy,
+              limits,
               mock: true,
               message: "Mock backend completed synchronously. No real child process was executed.",
               result,
@@ -207,6 +217,7 @@ function spawnTool(services: SubagentToolServices): PiToolDefinition {
               id: run.id,
               run: status,
               policy,
+              limits,
               mock: true,
               message: "Mock backend completed synchronously; returning only the run ID for background mode.",
             },
@@ -301,13 +312,14 @@ interface SpawnToolInput {
   };
   limits?: {
     maxRuntimeSec?: number;
+    maxCostUsd?: number;
   };
   outputSchema?: string | Record<string, unknown>;
 }
 
 const SPAWN_KEYS = new Set(["agent", "task", "mode", "runtime", "context", "limits", "outputSchema"]);
 const CONTEXT_KEYS = new Set(["inherit", "files", "includeDiff"]);
-const LIMIT_KEYS = new Set(["maxRuntimeSec"]);
+const LIMIT_KEYS = new Set(["maxRuntimeSec", "maxCostUsd"]);
 
 export class SubagentToolValidationError extends Error {
   constructor(message: string) {
@@ -349,6 +361,7 @@ function readLimits(input: unknown): NonNullable<SpawnToolInput["limits"]> {
 
   return {
     ...(own(value, "maxRuntimeSec") !== undefined ? { maxRuntimeSec: readPositiveNumber(own(value, "maxRuntimeSec"), "limits.maxRuntimeSec") } : {}),
+    ...(own(value, "maxCostUsd") !== undefined ? { maxCostUsd: readNonNegativeNumber(own(value, "maxCostUsd"), "limits.maxCostUsd") } : {}),
   };
 }
 
@@ -417,6 +430,13 @@ function readBoolean(value: unknown, path: string): boolean {
 function readPositiveNumber(value: unknown, path: string): number {
   if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
     throw new SubagentToolValidationError(`${path}: ${path} must be a positive number.`);
+  }
+  return value;
+}
+
+function readNonNegativeNumber(value: unknown, path: string): number {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+    throw new SubagentToolValidationError(`${path}: ${path} must be a non-negative number.`);
   }
   return value;
 }
