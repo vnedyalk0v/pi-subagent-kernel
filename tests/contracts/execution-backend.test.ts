@@ -198,6 +198,16 @@ describe("ExecutionBackend", () => {
     assert.equal(input.agent.sandbox.shell, "none");
   });
 
+  it("rejects inherited array entries inside spawned agent specs", () => {
+    const inheritedTools = new Array<string>(1);
+    Object.setPrototypeOf(inheritedTools, { 0: "write", __proto__: Array.prototype });
+
+    assert.throws(
+      () => parseSpawnInput({ ...validSpawnInput, agent: { ...validAgent, tools: inheritedTools } }),
+      /agent\.tools\[0\]: tools\[0\] must be a string/,
+    );
+  });
+
   it("rejects context payload fields for none mode", () => {
     assert.throws(
       () => parseSpawnInput({ ...validSpawnInput, context: { mode: "none", summary: "leak", files: ["README.md"] } }),

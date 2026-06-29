@@ -416,7 +416,7 @@ function readOwn(record: Record<string, unknown>, key: string): unknown {
 
 function cloneOwn(value: unknown): unknown {
   if (Array.isArray(value)) {
-    return value.map(cloneOwn);
+    return Array.from({ length: value.length }, (_, index) => (hasOwn(value, String(index)) ? cloneOwn(value[index]) : null));
   }
   if (!isRecord(value)) {
     return value;
