@@ -373,24 +373,23 @@ function readSandboxLayer(
     : undefined;
   const mcpAlias = hasOwn(input, "mcp") ? readMcpServers(input, "mcp", `${path}.mcp`, issues) : undefined;
   const mcpServers = explicitMcpServers ?? mcpAlias;
+  const filesystem = hasOwn(input, "filesystem")
+    ? readOptionalEnum(input.filesystem, FILESYSTEM_POLICIES, `${path}.filesystem`, issues)
+    : undefined;
+  const network = hasOwn(input, "network")
+    ? readOptionalEnum(input.network, NETWORK_POLICIES, `${path}.network`, issues)
+    : undefined;
+  const shell = hasOwn(input, "shell") ? readOptionalEnum(input.shell, SHELL_POLICIES, `${path}.shell`, issues) : undefined;
+  const childExtensions = hasOwn(input, "childExtensions")
+    ? readOptionalEnum(input.childExtensions, CHILD_EXTENSION_POLICIES, `${path}.childExtensions`, issues)
+    : undefined;
 
   return {
-    ...(hasOwn(input, "filesystem")
-      ? { filesystem: readOptionalEnum(input.filesystem, FILESYSTEM_POLICIES, `${path}.filesystem`, issues) }
-      : {}),
-    ...(hasOwn(input, "network") ? { network: readOptionalEnum(input.network, NETWORK_POLICIES, `${path}.network`, issues) } : {}),
-    ...(hasOwn(input, "shell") ? { shell: readOptionalEnum(input.shell, SHELL_POLICIES, `${path}.shell`, issues) } : {}),
+    ...(filesystem !== undefined ? { filesystem } : {}),
+    ...(network !== undefined ? { network } : {}),
+    ...(shell !== undefined ? { shell } : {}),
     ...(mcpServers !== undefined ? { mcpServers } : {}),
-    ...(hasOwn(input, "childExtensions")
-      ? {
-          childExtensions: readOptionalEnum(
-            input.childExtensions,
-            CHILD_EXTENSION_POLICIES,
-            `${path}.childExtensions`,
-            issues,
-          ),
-        }
-      : {}),
+    ...(childExtensions !== undefined ? { childExtensions } : {}),
   };
 }
 
