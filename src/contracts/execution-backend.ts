@@ -144,7 +144,7 @@ export function validateRunStatus(input: unknown): ValidationResult<RunStatus> {
   if (status === "queued" && startedAt) {
     issues.push({ path: "startedAt", message: "queued run statuses must not include startedAt." });
   }
-  const preRuntimeCancelled = status === "cancelled" && !startedAt;
+  const preRuntimeCancelled = status === "cancelled" && !hasRuntime && !startedAt;
   if (status && status !== "queued" && !preRuntimeCancelled && !hasRuntime) {
     issues.push({ path: "runtime", message: "runtime is required once a run leaves queued." });
   }

@@ -310,6 +310,20 @@ describe("ExecutionBackend", () => {
     );
   });
 
+  it("requires start times for runtime-selected cancellations", () => {
+    assert.throws(
+      () =>
+        parseRunStatus({
+          id: "run_mock_1",
+          agent: "scout",
+          runtime: "sdk",
+          status: "cancelled",
+          endedAt: "2026-06-26T10:00:01.000Z",
+        }),
+      /cancelled run statuses require startedAt and endedAt/,
+    );
+  });
+
   it("rejects end timestamps on active statuses", () => {
     assert.throws(
       () =>
