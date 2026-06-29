@@ -101,6 +101,10 @@ export function validateSpawnInput(input: unknown): ValidationResult<SpawnInput>
   const limits = readSpawnLimits(readOwn(input, "limits"), issues);
   const output = readSpawnOutput(readOwn(input, "output"), issues);
 
+  if (runId && context?.parentRunId === runId) {
+    issues.push({ path: "context.parentRunId", message: "context.parentRunId must not equal runId." });
+  }
+
   if (issues.length > 0 || !runId || !agent || !task || !context || !policy || !limits || !output) {
     return fail(issues);
   }
@@ -137,14 +141,18 @@ export function validateRunStatus(input: unknown): ValidationResult<RunStatus> {
   if (startedAt && endedAt && Date.parse(endedAt) < Date.parse(startedAt)) {
     issues.push({ path: "endedAt", message: "endedAt must not be earlier than startedAt." });
   }
-  if (status && status !== "queued" && status !== "cancelled" && !hasRuntime) {
+  const preRuntimeCancelled = status === "cancelled" && !startedAt;
+  if (status && status !== "queued" && !preRuntimeCancelled && !hasRuntime) {
     issues.push({ path: "runtime", message: "runtime is required once a run leaves queued." });
+  }
+  if (status && !isTerminalStatus(status) && endedAt) {
+    issues.push({ path: "endedAt", message: `${status} run statuses must not include endedAt.` });
   }
   if (status && isActiveStatus(status) && !startedAt) {
     issues.push({ path: "startedAt", message: `${status} run statuses require startedAt.` });
   }
   if (status && isTerminalStatus(status) && (!startedAt || !endedAt)) {
-    if (status === "cancelled" && !hasRuntime && endedAt) {
+    if (preRuntimeCancelled && endedAt) {
       // queued -> cancelled may happen before backend/runtime selection.
     } else {
       issues.push({ path: "endedAt", message: `${status} run statuses require startedAt and endedAt.` });
@@ -186,7 +194,7 @@ function readAgentDefinition(value: unknown, issues: ValidationIssue[]): AgentDe
     issues.push({ path: "agent", message: "agent is required." });
     return undefined;
   }
-  const result = validateAgentDefinition(value);
+  const result = validateAgentDefinition(cloneOwn(value));
   if (!result.ok) {
     issues.push(...prefixIssues("agent", result.issues));
     return undefined;
@@ -226,6 +234,9 @@ function readSpawnContext(value: unknown, issues: ValidationIssue[]): SpawnConte
   const parentRunId = hasOwn(value, "parentRunId") ? readNullableString(readOwn(value, "parentRunId"), "context.parentRunId", issues) : undefined;
   const summary = readOptionalString(readOwn(value, "summary"), "context.summary", issues);
   const files = hasOwn(value, "files") ? readStringList(readOwn(value, "files"), "context.files", issues) : [];
+  if (mode === "none" && (summary !== undefined || files.length > 0)) {
+    issues.push({ path: "context", message: "context.mode none must not include summary or files." });
+  }
 
   return mode
     ? {
@@ -401,6 +412,16 @@ function hasOwn(record: Record<string, unknown>, key: string): boolean {
 
 function readOwn(record: Record<string, unknown>, key: string): unknown {
   return hasOwn(record, key) ? record[key] : undefined;
+}
+
+function cloneOwn(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(cloneOwn);
+  }
+  if (!isRecord(value)) {
+    return value;
+  }
+  return Object.fromEntries(Object.keys(value).map((key) => [key, cloneOwn(value[key])]));
 }
 
 function deepFreeze<T>(value: T): T {

@@ -186,6 +186,32 @@ describe("ExecutionBackend", () => {
     }
   });
 
+  it("strips inherited fields inside spawned agent specs", () => {
+    const agent = Object.create({ tools: ["write"], sandbox: { shell: "allow" } }) as Record<string, unknown>;
+    agent.name = "scout";
+    agent.description = "Read-only explorer.";
+    agent.instructions = "Gather evidence only.";
+
+    const input = parseSpawnInput({ ...validSpawnInput, agent });
+
+    assert.deepEqual(input.agent.tools, []);
+    assert.equal(input.agent.sandbox.shell, "none");
+  });
+
+  it("rejects context payload fields for none mode", () => {
+    assert.throws(
+      () => parseSpawnInput({ ...validSpawnInput, context: { mode: "none", summary: "leak", files: ["README.md"] } }),
+      /context\.mode none must not include summary or files/,
+    );
+  });
+
+  it("rejects self-parented spawn requests", () => {
+    assert.throws(
+      () => parseSpawnInput({ ...validSpawnInput, context: { ...validSpawnInput.context, parentRunId: validSpawnInput.runId } }),
+      /context\.parentRunId must not equal runId/,
+    );
+  });
+
   it("validates run status without allowing unresolved auto runtime", () => {
     const status = parseRunStatus({
       id: "run_mock_1",
@@ -226,6 +252,35 @@ describe("ExecutionBackend", () => {
     assert.throws(
       () => parseRunStatus({ id: "run_mock_1", agent: "scout", runtime: "sdk", status: "running" }),
       /running run statuses require startedAt/,
+    );
+  });
+
+  it("requires runtime for started cancellations", () => {
+    assert.throws(
+      () =>
+        parseRunStatus({
+          id: "run_mock_1",
+          agent: "scout",
+          status: "cancelled",
+          startedAt: "2026-06-26T10:00:00.000Z",
+          endedAt: "2026-06-26T10:00:01.000Z",
+        }),
+      /runtime is required once a run leaves queued/,
+    );
+  });
+
+  it("rejects end timestamps on active statuses", () => {
+    assert.throws(
+      () =>
+        parseRunStatus({
+          id: "run_mock_1",
+          agent: "scout",
+          runtime: "sdk",
+          status: "running",
+          startedAt: "2026-06-26T10:00:00.000Z",
+          endedAt: "2026-06-26T10:00:01.000Z",
+        }),
+      /running run statuses must not include endedAt/,
     );
   });
 
