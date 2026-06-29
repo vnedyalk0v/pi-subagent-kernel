@@ -6,7 +6,7 @@ It contains source-backed specifications plus the TypeScript package work as it 
 
 ## Current implementation status
 
-The package exports core contracts, an in-memory agent registry, a `.pi/agents/*.md` loader that requires explicit project trust, and a Pi extension entrypoint that registers the canonical MVP tool names. The tools currently return structured `not_implemented` details; real run registry and backend execution are later milestone work. `tests/extension/extension.test.ts` is the mock extension-load harness for local validation without a live Pi session.
+The package exports core contracts, an in-memory agent registry, safe built-in MVP agent definitions (`scout`, `reviewer`, `tester`, `summarizer`), a `.pi/agents/*.md` loader that requires explicit project trust, and a Pi extension entrypoint that registers the canonical MVP tool names. The tools currently return structured `not_implemented` details; real run registry and backend execution are later milestone work. `tests/extension/extension.test.ts` is the mock extension-load harness for local validation without a live Pi session.
 
 ## What to build
 
@@ -98,6 +98,6 @@ The MVP should support:
 - SDK and subprocess backends.
 - Standard result envelope.
 - Concurrency limit, depth limit, runtime timeout, and tool allowlists.
-- Built-in `scout`, `reviewer`, `tester`, `implementer`, and `summarizer` agents.
+- Built-in `scout`, `reviewer`, `tester`, and `summarizer` agents; defer `implementer` until write-capable safety exists.
 
 Anything beyond that should be implemented only after the MVP test suite is green.
