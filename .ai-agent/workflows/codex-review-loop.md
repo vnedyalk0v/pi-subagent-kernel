@@ -13,17 +13,17 @@ A PR is not ready for owner review until the latest `codex-connector bot` result
 For a current head commit:
 
 1. Confirm the current head SHA before every polling pass.
-2. Check all Codex signals, not only PR reviews: PR/issue comments, pull reviews, review comments/threads, status checks, reactions, and timeline events.
-3. Treat 👀 / `eyes`, queued/in-progress checks, "review started" text, or any current-head `codex-connector bot` activity as automatic review activity.
+2. Check all current-head Codex signals, not only PR reviews: PR/issue comments, pull reviews, review comments/threads, status checks, reactions, and timeline events.
+3. Treat 👀 / `eyes`, queued/in-progress checks, "review started" text, or any current-head `codex-connector bot` activity as automatic review activity. For signals without a commit ID, count them only when their timestamp is after the latest head push/review request; do not count stale signals from older heads.
 4. Poll at least 3 times over at least 10 minutes unless a final Codex result appears sooner. Wait between polls according to harness capabilities; do not create background promises.
-5. While any in-progress signal exists, keep the PR/project `In Review`, continue polling, and do not post a blocker or manual trigger.
-6. Only if no Codex signal exists after the polling window, leave a blocker comment and ask the owner for direction.
+5. While any current-head in-progress signal exists, keep the PR/project `In Review`, continue polling, and do not post a blocker or manual trigger.
+6. Only if no current-head Codex signal exists after the polling window, leave a blocker comment and ask the owner for direction.
 7. Do not post more than one manual `@codex review` for the same head commit, and only do so after owner approval or confirmed auto-review failure.
 
 ## Useful checks
 
 ```bash
-gh pr view <pr-number> --json number,title,headRefOid,comments,reviews,statusCheckRollup
+gh pr view <pr-number> --json number,title,headRefOid,comments,reviews,statusCheckRollup,updatedAt
 
 gh api repos/vnedyalk0v/pi-subagent-kernel/issues/<pr-number>/comments \
   --jq '.[] | {id, user: .user.login, body, reactions: .reactions, created_at}'
@@ -36,6 +36,12 @@ gh api repos/vnedyalk0v/pi-subagent-kernel/pulls/<pr-number>/reviews
 
 gh api repos/vnedyalk0v/pi-subagent-kernel/pulls/<pr-number>/comments \
   --jq '.[] | {id, user: .user.login, body, path, line, created_at}'
+
+gh api repos/vnedyalk0v/pi-subagent-kernel/pulls/<pr-number>/comments --jq '.[].id' | while read -r comment_id; do
+  gh api repos/vnedyalk0v/pi-subagent-kernel/pulls/comments/$comment_id/reactions \
+    -H 'Accept: application/vnd.github+json' \
+    --jq ".[] | {comment_id: $comment_id, user: .user.login, content, created_at}"
+done
 
 gh api repos/vnedyalk0v/pi-subagent-kernel/issues/<pr-number>/timeline --paginate \
   --jq '.[] | select(.event == "reviewed" or .event == "commented") | {event, actor: .actor.login, content, created_at}'
