@@ -4,16 +4,23 @@ Built-in agents should be narrow, opinionated, and safe. They are examples and d
 
 ## Built-in agent set
 
-MVP agents:
+Implemented MVP-safe built-ins:
 
 ```text
 scout
-planner
 reviewer
 tester
-implementer
 summarizer
 ```
+
+MVP design candidates deferred from the package defaults until a scoped issue needs them:
+
+```text
+planner
+implementer
+```
+
+`implementer` must stay out of built-ins until write-capable subprocess/worktree safety exists.
 
 Phase 2 agents:
 
