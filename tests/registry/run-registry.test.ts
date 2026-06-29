@@ -116,6 +116,7 @@ describe("RunRegistry", () => {
     assert.equal(registry.updateState("run_1", "running").status, "running");
     assert.throws(() => registry.updateState("run_1", "failed"), /failed runs require a structured error/);
     assert.throws(() => registry.updateState("run_1", "failed", { error: Object.create(timeoutError) }), /error.code is required/);
+    assert.throws(() => registry.updateState("run_1", "failed", { error: { ...timeoutError, detail: {} } as never }), /Unknown field "error.detail"/);
 
     const failed = registry.updateState("run_1", "failed", {
       error: { ...timeoutError, details: { nested: { retryableAfterSec: 30 } } },
@@ -163,6 +164,7 @@ describe("RunRegistry", () => {
     registry.updateState("run_1", "starting");
     registry.updateState("run_1", "running");
 
+    assert.throws(() => registry.storeResult({ ...completedEnvelope(), parentRunId: "run_parent", startedAt: "2026-06-26T09:59:59.000Z" }), /Result startedAt must match/);
     assert.throws(() => registry.storeResult({ ...completedEnvelope(), parentRunId: "other_parent" }), /Result parentRunId must match/);
     const envelope = registry.storeResult({ ...completedEnvelope(), parentRunId: "run_parent" });
 

@@ -7,6 +7,7 @@ import type { ValidationIssue } from "../contracts/agent-definition.ts";
 
 const CREATE_RUN_KEYS = new Set(["id", "agent", "task", "runtime", "parentRunId", "summary"]);
 const UPDATE_KEYS = new Set(["runtime", "summary", "error"]);
+const ERROR_KEYS = new Set(["code", "message", "retryable", "details"]);
 const TERMINAL_STATES = new Set<RunState>(["completed", "failed", "cancelled", "expired"]);
 const ACTIVE_STATES = new Set<RunState>(["starting", "running", "waiting_for_input"]);
 
@@ -192,6 +193,9 @@ export class RunRegistry {
     if (current.parentRunId !== undefined && envelope.parentRunId !== undefined && envelope.parentRunId !== current.parentRunId) {
       throw new RunRegistryValidationError("run result", [{ path: "parentRunId", message: "Result parentRunId must match the run record." }]);
     }
+    if (current.startedAt && envelope.startedAt && envelope.startedAt !== current.startedAt) {
+      throw new RunRegistryValidationError("run result", [{ path: "startedAt", message: "Result startedAt must match the run record." }]);
+    }
     if (current.status !== envelope.status) {
       assertTransition(current, envelope.status, envelope.runtime, envelope.error);
     }
@@ -330,6 +334,8 @@ function readRunError(value: unknown): RunError {
     fail("run update", "error", "error must be an object.");
   }
 
+  rejectUnknownKeys(value, ERROR_KEYS, "run update", "error");
+
   const detailsValue = own(value, "details");
   const code = readString(own(value, "code"), "error.code", "run update");
   const message = readString(own(value, "message"), "error.message", "run update");
@@ -382,10 +388,11 @@ function own(record: Record<string, unknown>, key: string): unknown {
   return Object.prototype.hasOwnProperty.call(record, key) ? record[key] : undefined;
 }
 
-function rejectUnknownKeys(record: Record<string, unknown>, allowed: ReadonlySet<string>, kind: string): void {
+function rejectUnknownKeys(record: Record<string, unknown>, allowed: ReadonlySet<string>, kind: string, prefix = ""): void {
   for (const key of Object.keys(record)) {
     if (!allowed.has(key)) {
-      fail(kind, key, `Unknown field "${key}".`);
+      const path = prefix ? `${prefix}.${key}` : key;
+      fail(kind, path, `Unknown field "${path}".`);
     }
   }
 }
