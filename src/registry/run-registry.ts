@@ -144,6 +144,10 @@ export class RunRegistry {
     return this.#runs.get(parseRunId(runId, "runId"));
   }
 
+  list(): RunRecord[] {
+    return [...this.#runs.values()];
+  }
+
   status(runId: string): RunStatus {
     return toRunStatus(this.#require(runId));
   }

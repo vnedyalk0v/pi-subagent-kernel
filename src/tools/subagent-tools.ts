@@ -56,9 +56,10 @@ export interface SpawnToolResultDetails {
 
 export interface StatusToolResultDetails {
   tool: "subagent_status";
-  status: RunStatus["status"];
-  id: string;
-  run: RunStatus;
+  status: RunStatus["status"] | "listed";
+  id?: string;
+  run?: RunStatus;
+  runs?: RunStatus[];
   error?: RunError;
   message: string;
 }
@@ -129,12 +130,9 @@ const spawnParameters = objectSchema(
   ["agent", "task"],
 );
 
-const statusParameters = objectSchema(
-  {
-    id: stringSchema("Run ID to inspect"),
-  },
-  ["id"],
-);
+const statusParameters = objectSchema({
+  id: stringSchema("Run ID to inspect; omit to list in-memory runs"),
+});
 
 const resultParameters = objectSchema(
   {
@@ -256,11 +254,17 @@ function statusTool(services: SubagentToolServices): PiToolDefinition {
       }
 
       const request = parseStatusToolInput(params);
-      const record = services.runs.get(request.id);
-      if (!record) {
-        throw new SubagentToolValidationError(`Unknown run ID "${request.id}".`);
+      if (!request.id) {
+        const runs = services.runs.list().map((run) => services.runs.status(run.id));
+        const message = runs.length === 0 ? "No in-memory subagent runs found." : `Found ${runs.length} in-memory subagent run(s).`;
+        return {
+          content: [{ type: "text", text: message }],
+          details: { tool: "subagent_status", status: "listed", runs, message },
+        };
       }
-      const run = services.runs.status(record.id);
+
+      const run = services.runs.status(request.id);
+      const record = services.runs.get(run.id);
       const message = `Run ${run.id} (${run.agent}) is ${run.status}${run.summary ? `: ${run.summary}` : "."}`;
 
       return {
@@ -270,7 +274,7 @@ function statusTool(services: SubagentToolServices): PiToolDefinition {
           status: run.status,
           id: run.id,
           run,
-          ...(record.error !== undefined ? { error: record.error } : {}),
+          ...(record?.error !== undefined ? { error: record.error } : {}),
           message,
         },
       };
@@ -353,7 +357,7 @@ function notImplemented(
 }
 
 interface StatusToolInput {
-  id: string;
+  id?: string;
 }
 
 interface SpawnToolInput {
@@ -404,7 +408,7 @@ function parseStatusToolInput(input: unknown): StatusToolInput {
   const value = readRecord(input, "$", "Status input must be an object.");
   rejectUnknown(value, STATUS_KEYS, "");
 
-  return { id: readString(own(value, "id"), "id") };
+  return own(value, "id") !== undefined ? { id: readString(own(value, "id"), "id") } : {};
 }
 
 function readContext(input: unknown): NonNullable<SpawnToolInput["context"]> {

@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { createSubagentToolServices, createSubagentTools, SubagentToolValidationError } from "../../src/tools/subagent-tools.ts";
+import { RunNotFoundError } from "../../src/registry/index.ts";
+import { createSubagentToolServices, createSubagentTools } from "../../src/tools/subagent-tools.ts";
 
 function statusTool() {
   const services = createSubagentToolServices();
@@ -24,6 +25,19 @@ describe("subagent_status", () => {
     assert.equal(result.details.run.summary, "Waiting for backend.");
     assert.equal(result.details.run.startedAt, undefined);
     assert.match(result.content[0]?.text ?? "", /run_queued.*queued/);
+  });
+
+  it("lists in-memory runs when id is omitted", async () => {
+    const { services, tool } = statusTool();
+    services.runs.create({ id: "run_a", agent: "scout", task: "Inspect files." });
+    services.runs.create({ id: "run_b", agent: "tester", task: "Run tests." });
+
+    const result = await tool.execute("call_1", {});
+
+    assert.equal(result.details.tool, "subagent_status");
+    assert.equal(result.details.status, "listed");
+    assert.deepEqual(result.details.runs?.map((run) => run.id), ["run_a", "run_b"]);
+    assert.match(result.content[0]?.text ?? "", /Found 2/);
   });
 
   it("reports completed runs", async () => {
@@ -72,16 +86,12 @@ describe("subagent_status", () => {
     assert.ok(result.details.run.endedAt);
   });
 
-  it("rejects missing or unknown run IDs clearly", async () => {
+  it("preserves typed not-found errors for unknown run IDs", async () => {
     const { tool } = statusTool();
 
     await assert.rejects(
-      () => tool.execute("call_1", {}),
-      /id is required and must be a string/,
-    );
-    await assert.rejects(
       () => tool.execute("call_1", { id: "run_missing" }),
-      (error) => error instanceof SubagentToolValidationError && /Unknown run ID "run_missing"/.test(error.message),
+      (error) => error instanceof RunNotFoundError && /Unknown run ID "run_missing"/.test(error.message),
     );
   });
 });
