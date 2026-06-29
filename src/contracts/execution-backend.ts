@@ -441,7 +441,7 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
   return prototype === Object.prototype || prototype === null;
 }
 
-function hasOwn(record: Record<string, unknown>, key: string): boolean {
+function hasOwn(record: object, key: PropertyKey): boolean {
   return Object.prototype.hasOwnProperty.call(record, key);
 }
 
