@@ -324,8 +324,12 @@ function resultTool(services: SubagentToolServices): PiToolDefinition {
       }
 
       const request = parseResultToolInput(params);
-      const result = services.runs.result(request.id);
+      const stored = services.runs.result(request.id);
       const run = services.runs.status(request.id);
+      if (!stored && run.endedAt) {
+        throw new SubagentResultUnavailableError(run.id, run.status);
+      }
+      const result = stored && !request.includeArtifacts ? { ...stored, artifacts: [] } : stored;
       const record = services.runs.get(request.id);
       const message = result ? `Run ${run.id} result is ${result.status}: ${result.summary}` : `Run ${run.id} is ${run.status}; result is not available yet.`;
 
@@ -391,6 +395,7 @@ interface StatusToolInput {
 
 interface ResultToolInput {
   id: string;
+  includeArtifacts: boolean;
 }
 
 interface SpawnToolInput {
@@ -423,6 +428,18 @@ export class SubagentToolValidationError extends Error {
   }
 }
 
+export class SubagentResultUnavailableError extends Error {
+  readonly runId: string;
+  readonly status: RunStatus["status"];
+
+  constructor(runId: string, status: RunStatus["status"]) {
+    super(`Run "${runId}" is ${status}, but no result envelope is stored.`);
+    this.name = "SubagentResultUnavailableError";
+    this.runId = runId;
+    this.status = status;
+  }
+}
+
 function parseSpawnToolInput(input: unknown): SpawnToolInput {
   const value = readRecord(input, "$", "Spawn input must be an object.");
   rejectUnknown(value, SPAWN_KEYS, "");
@@ -452,13 +469,11 @@ function parseResultToolInput(input: unknown): ResultToolInput {
   const value = readRecord(input, "$", "Result input must be an object.");
   rejectUnknown(value, RESULT_KEYS, "");
 
-  if (own(value, "includeArtifacts") !== undefined) {
-    readBoolean(own(value, "includeArtifacts"), "includeArtifacts");
-  }
+  const includeArtifacts = own(value, "includeArtifacts") !== undefined ? readBoolean(own(value, "includeArtifacts"), "includeArtifacts") : false;
   if (own(value, "includeEvents") !== undefined) {
     readBoolean(own(value, "includeEvents"), "includeEvents");
   }
-  return { id: readString(own(value, "id"), "id") };
+  return { id: readString(own(value, "id"), "id"), includeArtifacts };
 }
 
 function readContext(input: unknown): NonNullable<SpawnToolInput["context"]> {

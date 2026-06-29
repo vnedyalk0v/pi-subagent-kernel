@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { RunNotFoundError } from "../../src/registry/index.ts";
-import { createSubagentToolServices, createSubagentTools } from "../../src/tools/subagent-tools.ts";
+import { createSubagentToolServices, createSubagentTools, SubagentResultUnavailableError } from "../../src/tools/subagent-tools.ts";
 
 function tools() {
   const services = createSubagentToolServices();
@@ -60,7 +60,7 @@ describe("subagent_result", () => {
       endedAt: failed.endedAt,
       summary: "Failed.",
       findings: [],
-      artifacts: [],
+      artifacts: [{ name: "log", kind: "log", path: "artifacts/run_failed.log" }],
       filesRead: [],
       filesChanged: [],
       testsRun: [],
@@ -70,12 +70,26 @@ describe("subagent_result", () => {
       error,
     });
 
-    const output = await result.execute("call_1", { id: "run_failed" });
+    const output = await result.execute("call_1", { id: "run_failed", includeArtifacts: false });
 
     assert.equal(output.details.tool, "subagent_result");
     assert.equal(output.details.status, "failed");
     assert.equal(output.details.result?.status, "failed");
+    assert.deepEqual(output.details.result?.artifacts, []);
     assert.equal(output.details.error?.code, "MOCK_FAILED");
+  });
+
+  it("rejects terminal runs that are missing result envelopes", async () => {
+    const { services, result } = tools();
+    services.runs.create({ id: "run_done_without_result", agent: "scout", task: "Inspect files.", runtime: "sdk" });
+    services.runs.updateState("run_done_without_result", "starting", { runtime: "sdk" });
+    services.runs.updateState("run_done_without_result", "running");
+    services.runs.updateState("run_done_without_result", "completed", { summary: "Done." });
+
+    await assert.rejects(
+      () => result.execute("call_1", { id: "run_done_without_result" }),
+      (error) => error instanceof SubagentResultUnavailableError && /no result envelope is stored/.test(error.message),
+    );
   });
 
   it("handles missing run IDs clearly", async () => {
