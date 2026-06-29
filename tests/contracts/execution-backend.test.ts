@@ -208,6 +208,30 @@ describe("ExecutionBackend", () => {
     );
   });
 
+  it("rejects inherited context file entries", () => {
+    const files = new Array<string>(1);
+    Object.setPrototypeOf(files, { 0: "secret.env", __proto__: Array.prototype });
+
+    assert.throws(
+      () => parseSpawnInput({ ...validSpawnInput, context: { ...validSpawnInput.context, files } }),
+      /context\.files\[0\] must be an own string/,
+    );
+  });
+
+  it("rejects mutable inline output schemas", () => {
+    assert.throws(
+      () => parseSpawnInput({ ...validSpawnInput, output: { ...validSpawnInput.output, schema: new Map([["type", "object"]]) } }),
+      /output\.schema must be a string or plain JSON object/,
+    );
+  });
+
+  it("rejects unsafe artifact output paths", () => {
+    assert.throws(
+      () => parseSpawnInput({ ...validSpawnInput, output: { ...validSpawnInput.output, artifactPath: "../result.json" } }),
+      /output\.artifactPath must be a safe relative artifact path/,
+    );
+  });
+
   it("rejects context payload fields for none mode", () => {
     assert.throws(
       () => parseSpawnInput({ ...validSpawnInput, context: { mode: "none", summary: "leak", files: ["README.md"] } }),
@@ -243,6 +267,13 @@ describe("ExecutionBackend", () => {
     assert.throws(
       () => parseRunStatus({ id: "run_mock_1", agent: "scout", status: "starting" }),
       /runtime is required once a run leaves queued/,
+    );
+  });
+
+  it("rejects start times on queued statuses", () => {
+    assert.throws(
+      () => parseRunStatus({ id: "run_mock_1", agent: "scout", status: "queued", startedAt: "2026-06-26T10:00:00.000Z" }),
+      /queued run statuses must not include startedAt/,
     );
   });
 

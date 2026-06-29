@@ -141,6 +141,9 @@ export function validateRunStatus(input: unknown): ValidationResult<RunStatus> {
   if (startedAt && endedAt && Date.parse(endedAt) < Date.parse(startedAt)) {
     issues.push({ path: "endedAt", message: "endedAt must not be earlier than startedAt." });
   }
+  if (status === "queued" && startedAt) {
+    issues.push({ path: "startedAt", message: "queued run statuses must not include startedAt." });
+  }
   const preRuntimeCancelled = status === "cancelled" && !startedAt;
   if (status && status !== "queued" && !preRuntimeCancelled && !hasRuntime) {
     issues.push({ path: "runtime", message: "runtime is required once a run leaves queued." });
@@ -278,7 +281,7 @@ function readSpawnOutput(value: unknown, issues: ValidationIssue[]): SpawnOutput
 
   const mode = readRequiredEnum(readOwn(value, "mode"), RESULT_MODES, "output.mode", issues);
   const schema = readOutputSchema(readOwn(value, "schema"), "output.schema", issues);
-  const artifactPath = readOptionalString(readOwn(value, "artifactPath"), "output.artifactPath", issues);
+  const artifactPath = readArtifactPath(readOwn(value, "artifactPath"), "output.artifactPath", issues);
 
   return mode
     ? {
@@ -324,12 +327,17 @@ function readStringList(value: unknown, path: string, issues: ValidationIssue[])
   }
 
   const strings: string[] = [];
-  value.forEach((item, index) => {
-    const parsed = readOptionalString(item, `${path}[${index}]`, issues);
+  for (let index = 0; index < value.length; index += 1) {
+    const itemPath = `${path}[${index}]`;
+    if (!hasOwn(value, String(index))) {
+      issues.push({ path: itemPath, message: `${itemPath} must be an own string.` });
+      continue;
+    }
+    const parsed = readOptionalString(value[index], itemPath, issues);
     if (parsed) {
       strings.push(parsed);
     }
-  });
+  }
   return strings;
 }
 
@@ -358,6 +366,24 @@ function readPositiveInteger(value: unknown, path: string, issues: ValidationIss
   return value;
 }
 
+function readArtifactPath(value: unknown, path: string, issues: ValidationIssue[]): string | undefined {
+  const artifactPath = readOptionalString(value, path, issues);
+  if (!artifactPath) {
+    return undefined;
+  }
+  if (
+    artifactPath.startsWith("/") ||
+    artifactPath.startsWith("\\") ||
+    /^[a-zA-Z]:/.test(artifactPath) ||
+    artifactPath.split(/[\\/]/).includes("..") ||
+    artifactPath.includes("\0")
+  ) {
+    issues.push({ path, message: `${path} must be a safe relative artifact path.` });
+    return undefined;
+  }
+  return artifactPath;
+}
+
 function readOutputSchema(value: unknown, path: string, issues: ValidationIssue[]): string | Record<string, unknown> | undefined {
   if (value === undefined) {
     return undefined;
@@ -370,10 +396,11 @@ function readOutputSchema(value: unknown, path: string, issues: ValidationIssue[
     }
     return trimmed;
   }
-  if (isRecord(value)) {
-    return value;
+  if (isPlainRecord(value)) {
+    const cloned = readJsonObject(value, path, issues);
+    return cloned;
   }
-  issues.push({ path, message: `${path} must be a string or object.` });
+  issues.push({ path, message: `${path} must be a string or plain JSON object.` });
   return undefined;
 }
 
@@ -406,12 +433,57 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  if (!isRecord(value)) {
+    return false;
+  }
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+
 function hasOwn(record: Record<string, unknown>, key: string): boolean {
   return Object.prototype.hasOwnProperty.call(record, key);
 }
 
 function readOwn(record: Record<string, unknown>, key: string): unknown {
   return hasOwn(record, key) ? record[key] : undefined;
+}
+
+function readJsonObject(value: Record<string, unknown>, path: string, issues: ValidationIssue[]): Record<string, unknown> | undefined {
+  const entries: Array<[string, unknown]> = [];
+  for (const key of Object.keys(value)) {
+    const parsed = readJsonValue(value[key], `${path}.${key}`, issues);
+    if (parsed !== undefined) {
+      entries.push([key, parsed]);
+    }
+  }
+  return issues.some((issue) => issue.path === path || issue.path.startsWith(`${path}.`) || issue.path.startsWith(`${path}[`))
+    ? undefined
+    : Object.fromEntries(entries);
+}
+
+function readJsonValue(value: unknown, path: string, issues: ValidationIssue[]): unknown {
+  if (value === null || typeof value === "string" || typeof value === "boolean") {
+    return value;
+  }
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return Array.from({ length: value.length }, (_, index) => {
+      const itemPath = `${path}[${index}]`;
+      if (!hasOwn(value, String(index))) {
+        issues.push({ path: itemPath, message: `${itemPath} must be an own JSON value.` });
+        return undefined;
+      }
+      return readJsonValue(value[index], itemPath, issues);
+    });
+  }
+  if (isPlainRecord(value)) {
+    return readJsonObject(value, path, issues);
+  }
+  issues.push({ path, message: `${path} must be JSON-compatible.` });
+  return undefined;
 }
 
 function cloneOwn(value: unknown): unknown {
