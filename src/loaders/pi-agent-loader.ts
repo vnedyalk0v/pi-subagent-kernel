@@ -11,6 +11,10 @@ export interface PiAgentLoaderIssue {
   path?: string;
 }
 
+export interface LoadPiAgentDefinitionsOptions {
+  trusted?: boolean;
+}
+
 export class PiAgentLoaderError extends Error {
   readonly issues: PiAgentLoaderIssue[];
 
@@ -21,13 +25,22 @@ export class PiAgentLoaderError extends Error {
   }
 }
 
-export async function loadPiAgentDefinitions(rootDir: string): Promise<AgentDefinition[]> {
+export async function loadPiAgentDefinitions(
+  rootDir: string,
+  options: LoadPiAgentDefinitionsOptions = {},
+): Promise<AgentDefinition[]> {
   const agentsDir = join(rootDir, ".pi", "agents");
   const entries = await readAgentDir(agentsDir);
   const files = entries
     .filter((entry) => entry.isFile() && entry.name.endsWith(".md"))
     .map((entry) => join(agentsDir, entry.name))
     .sort((left, right) => left.localeCompare(right));
+
+  if (files.length > 0 && !options.trusted) {
+    throw new PiAgentLoaderError([
+      { file: agentsDir, message: "Project-local agent definitions require trusted: true before loading." },
+    ]);
+  }
 
   const loaded: Array<{ file: string; definition: AgentDefinition }> = [];
   const issues: PiAgentLoaderIssue[] = [];
@@ -120,11 +133,31 @@ function parseYamlObject(source: string, file: string, lineOffset: number): Reco
     throw new PiAgentLoaderError([{ file, message: error instanceof Error ? error.message : String(error) }]);
   }
 
-  if (!isRecord(value)) {
+  const plain = readPlainYamlValue(value, file, "$");
+  if (!isRecord(plain)) {
     throw new PiAgentLoaderError([{ file, line: lineOffset, message: "YAML frontmatter must be an object." }]);
   }
 
-  return value;
+  return plain;
+}
+
+function readPlainYamlValue(value: unknown, file: string, path: string): unknown {
+  if (value === null || typeof value !== "object") {
+    return value;
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((item, index) => readPlainYamlValue(item, file, `${path}[${index}]`));
+  }
+
+  const prototype = Object.getPrototypeOf(value);
+  if (prototype !== Object.prototype && prototype !== null) {
+    throw new PiAgentLoaderError([{ file, path, message: "YAML value must be a plain object, array, or scalar." }]);
+  }
+
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).map(([key, item]) => [key, readPlainYamlValue(item, file, `${path}.${key}`)]),
+  );
 }
 
 function findDuplicateNames(loaded: Array<{ file: string; definition: AgentDefinition }>): PiAgentLoaderIssue[] {

@@ -66,7 +66,7 @@ Gather evidence only.
       await writeAgent(root, "a.md", validScout);
       await writeFile(join(root, ".pi", "agents", "ignore.txt"), "not an agent");
 
-      const agents = await loadPiAgentDefinitions(root);
+      const agents = await loadPiAgentDefinitions(root, { trusted: true });
 
       assert.deepEqual(agents.map((agent) => agent.name), ["scout", "tester"]);
     });
@@ -75,6 +75,17 @@ Gather evidence only.
   it("returns an empty list when .pi/agents is absent", async () => {
     await withTempRoot(async (root) => {
       assert.deepEqual(await loadPiAgentDefinitions(root), []);
+    });
+  });
+
+  it("requires trust before loading project agent files", async () => {
+    await withTempRoot(async (root) => {
+      await writeAgent(root, "scout.md", validScout);
+
+      await assert.rejects(
+        () => loadPiAgentDefinitions(root),
+        /Project-local agent definitions require trusted: true/,
+      );
     });
   });
 
@@ -142,6 +153,23 @@ Body.
     assert.deepEqual(agent.outputSchema, { oneOf: [{ enum: ["safe"] }] });
   });
 
+  it("rejects YAML tags that produce non-plain objects", () => {
+    assert.throws(
+      () =>
+        parsePiAgentMarkdown(
+          `---
+name: scout
+description: Read-only explorer.
+outputSchema: !!timestamp 2026-06-29
+---
+Body.
+`,
+          "tagged-object.md",
+        ),
+      /YAML value must be a plain object/,
+    );
+  });
+
   it("rejects empty values instead of inventing objects", () => {
     assert.throws(
       () =>
@@ -184,7 +212,7 @@ Body.
       await writeAgent(root, "second.md", validScout.replace("description: Read-only explorer.", "description: Duplicate scout."));
 
       await assert.rejects(
-        () => loadPiAgentDefinitions(root),
+        () => loadPiAgentDefinitions(root, { trusted: true }),
         (error) =>
           error instanceof PiAgentLoaderError &&
           error.issues.some(
