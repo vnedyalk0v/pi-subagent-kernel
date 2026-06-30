@@ -2,9 +2,11 @@ import { randomUUID } from "node:crypto";
 
 import { MockExecutionBackend } from "../backends/index.ts";
 import {
+  DEFAULT_PERMISSION_POLICY,
   parsePermissionPolicy,
   parseSpawnInput,
   RUN_ENVELOPE_RUNTIMES,
+  type AgentDefinition,
   type ExecutionBackendId,
   type PermissionPolicy,
   type RunEnvelope,
@@ -28,6 +30,12 @@ type SpawnMode = "foreground" | "background";
 type RequestedRuntime = ExecutionBackendId | "auto";
 const GLOBAL_MAX_RUNTIME_SEC = 1800;
 const GLOBAL_MAX_COST_USD = 1;
+const MVP_RUNTIME_BACKENDS = new Set<ExecutionBackendId>(["sdk", "subprocess"]);
+const ACTIVE_RUN_STATES = new Set<RunStatus["status"]>(["queued", "starting", "running", "waiting_for_input"]);
+const READ_ONLY_TOOL_NAMES = new Set(["read", "grep", "find", "ls"]);
+const WRITE_TOOL_NAMES = new Set(["write", "edit"]);
+const TEST_ONLY_SHELL_TOOL = "bash:test-only";
+const SUBAGENT_TOOL_NAME_SET = new Set<string>(SUBAGENT_TOOL_NAMES);
 
 export interface JsonSchema {
   [keyword: string]: unknown;
@@ -184,7 +192,8 @@ function spawnTool(services: SubagentToolServices): PiToolDefinition {
       }
 
       const runtime = resolveRuntime(request.runtime, agent.runtime);
-      const policy = parsePermissionPolicy({});
+      const policy = effectivePermissionPolicy(agent);
+      enforceSpawnSafety(agent, runtime, services, policy);
       const maxRuntimeCap = Math.min(agent.maxRuntimeSec ?? GLOBAL_MAX_RUNTIME_SEC, GLOBAL_MAX_RUNTIME_SEC);
       const maxCostCap = Math.min(agent.maxCostUsd ?? GLOBAL_MAX_COST_USD, GLOBAL_MAX_COST_USD);
       const limits = {
@@ -536,10 +545,101 @@ function readLimits(input: unknown): NonNullable<SpawnToolInput["limits"]> {
 
 function resolveRuntime(requested: RequestedRuntime, agentRuntime: RequestedRuntime): ExecutionBackendId {
   const fallback = agentRuntime === "auto" ? "sdk" : agentRuntime;
-  if (requested === "auto" || requested === fallback) {
-    return fallback;
+  if (requested !== "auto" && requested !== fallback) {
+    throw new SubagentToolValidationError(`runtime: runtime override "${requested}" is not available for mock ${fallback} runs.`);
   }
-  throw new SubagentToolValidationError(`runtime: runtime override "${requested}" is not available for mock ${fallback} runs.`);
+  if (!MVP_RUNTIME_BACKENDS.has(fallback)) {
+    throw new SubagentToolValidationError(`runtime: runtime "${fallback}" is not available for MVP mock runs.`);
+  }
+  return fallback;
+}
+
+function effectivePermissionPolicy(agent: AgentDefinition): PermissionPolicy {
+  if (agent.sandbox.filesystem !== "none" && agent.sandbox.filesystem !== "read-only") {
+    throw new SubagentToolValidationError(
+      `policy.filesystem: agent "${agent.name}" requests ${agent.sandbox.filesystem}; write access requires explicit policy.`,
+    );
+  }
+  if (agent.sandbox.network !== "none") {
+    throw new SubagentToolValidationError(`policy.network: agent "${agent.name}" requests ${agent.sandbox.network}; network access requires explicit policy.`);
+  }
+  if (agent.sandbox.shell === "ask" || agent.sandbox.shell === "allow") {
+    throw new SubagentToolValidationError(`policy.shell: agent "${agent.name}" requests ${agent.sandbox.shell}; only test-only shell tools are supported.`);
+  }
+  if (agent.sandbox.childExtensions !== "deny-by-default") {
+    throw new SubagentToolValidationError(`policy.childExtensions: agent "${agent.name}" requests child extension access; default policy denies it.`);
+  }
+  if (agent.sandbox.mcpServers.length > 0) {
+    throw new SubagentToolValidationError(`policy.mcpServers: agent "${agent.name}" requests MCP servers; no spawn-time allowlist exists yet.`);
+  }
+
+  return parsePermissionPolicy({
+    maxDepth: Math.min(agent.maxDepth ?? DEFAULT_PERMISSION_POLICY.maxDepth, DEFAULT_PERMISSION_POLICY.maxDepth),
+    maxThreads: Math.min(agent.maxThreads ?? DEFAULT_PERMISSION_POLICY.maxThreads, DEFAULT_PERMISSION_POLICY.maxThreads),
+    nestedSubagents: DEFAULT_PERMISSION_POLICY.nestedSubagents && agent.nestedSubagents,
+    filesystem: agent.sandbox.filesystem === "none" ? "none" : DEFAULT_PERMISSION_POLICY.filesystem,
+    network: DEFAULT_PERMISSION_POLICY.network,
+    shell: agent.sandbox.shell === "test-only" ? "test-only" : DEFAULT_PERMISSION_POLICY.shell,
+    childExtensions: DEFAULT_PERMISSION_POLICY.childExtensions,
+    mcpServers: DEFAULT_PERMISSION_POLICY.mcpServers,
+    projectAgentsRequireTrust: DEFAULT_PERMISSION_POLICY.projectAgentsRequireTrust,
+    projectAgentsRequireConfirmation: DEFAULT_PERMISSION_POLICY.projectAgentsRequireConfirmation,
+  });
+}
+
+function enforceSpawnSafety(
+  agent: AgentDefinition,
+  runtime: ExecutionBackendId,
+  services: SubagentToolServices,
+  policy: PermissionPolicy,
+): void {
+  const activeRuns = services.runs.list().filter((run) => ACTIVE_RUN_STATES.has(run.status)).length;
+  if (activeRuns >= policy.maxThreads) {
+    throw new SubagentToolValidationError(`policy.maxThreads: ${activeRuns} active run(s) already meet the maxThreads=${policy.maxThreads} cap.`);
+  }
+  if (agent.nestedSubagents) {
+    throw new SubagentToolValidationError(`policy.nestedSubagents: agent "${agent.name}" requests nested subagents, but the default policy denies them.`);
+  }
+
+  for (const tool of agent.tools) {
+    if (agent.disallowedTools.includes(tool)) {
+      throw new SubagentToolValidationError(`tools: agent "${agent.name}" both allows and disallows tool "${tool}".`);
+    }
+    assertToolAllowed(agent, runtime, policy, tool);
+  }
+}
+
+function assertToolAllowed(agent: AgentDefinition, runtime: ExecutionBackendId, policy: PermissionPolicy, tool: string): void {
+  if (SUBAGENT_TOOL_NAME_SET.has(tool)) {
+    throw new SubagentToolValidationError(
+      `tools: nested subagent tool "${tool}" is denied by nestedSubagents=${policy.nestedSubagents} and maxDepth=${policy.maxDepth}.`,
+    );
+  }
+  if (READ_ONLY_TOOL_NAMES.has(tool)) {
+    if (policy.filesystem === "none") {
+      throw new SubagentToolValidationError(`tools: read-only tool "${tool}" requires filesystem read access.`);
+    }
+    return;
+  }
+  if (tool === TEST_ONLY_SHELL_TOOL) {
+    if (policy.shell !== "test-only") {
+      throw new SubagentToolValidationError(`tools: ${TEST_ONLY_SHELL_TOOL} requires agent shell policy test-only.`);
+    }
+    if (runtime !== "subprocess") {
+      throw new SubagentToolValidationError(`tools: ${TEST_ONLY_SHELL_TOOL} requires subprocess runtime, not ${runtime}.`);
+    }
+    return;
+  }
+  if (WRITE_TOOL_NAMES.has(tool)) {
+    throw new SubagentToolValidationError(`tools: write tool "${tool}" is denied by filesystem=${policy.filesystem}.`);
+  }
+  if (tool === "bash" || tool.startsWith("bash:")) {
+    throw new SubagentToolValidationError(`tools: shell tool "${tool}" is denied; only ${TEST_ONLY_SHELL_TOOL} is supported.`);
+  }
+  if (tool.startsWith("mcp:")) {
+    throw new SubagentToolValidationError(`tools: MCP tool "${tool}" requires explicit MCP policy.`);
+  }
+  throw new SubagentToolValidationError(`tools: unknown tool "${tool}" is not in the MVP allowlist for agent "${agent.name}".`);
 }
 
 function readOutputSchema(value: unknown, path: string): string | Record<string, unknown> {
