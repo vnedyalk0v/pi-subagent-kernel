@@ -12,18 +12,21 @@ import {
 
 describe("PermissionPolicy", () => {
   it("uses the required deny-by-default safety policy", () => {
-    const policy = parsePermissionPolicy();
+    const expected = {
+      maxDepth: 1,
+      maxThreads: 4,
+      nestedSubagents: false,
+      filesystem: "read-only",
+      network: "none",
+      shell: "none",
+      childExtensions: "deny-by-default",
+      mcpServers: "allowlist-only",
+      projectAgentsRequireTrust: true,
+      projectAgentsRequireConfirmation: true,
+    } satisfies typeof DEFAULT_PERMISSION_POLICY;
 
-    assert.equal(policy.maxDepth, 1);
-    assert.equal(policy.maxThreads, 4);
-    assert.equal(policy.nestedSubagents, false);
-    assert.equal(policy.filesystem, "read-only");
-    assert.equal(policy.network, "none");
-    assert.equal(policy.shell, "none");
-    assert.equal(policy.childExtensions, "deny-by-default");
-    assert.equal(policy.mcpServers, "allowlist-only");
-    assert.equal(policy.projectAgentsRequireTrust, true);
-    assert.equal(policy.projectAgentsRequireConfirmation, true);
+    assert.deepEqual(DEFAULT_PERMISSION_POLICY, expected);
+    assert.deepEqual(parsePermissionPolicy(), expected);
   });
 
   it("matches agent definition safety defaults where the contracts overlap", () => {

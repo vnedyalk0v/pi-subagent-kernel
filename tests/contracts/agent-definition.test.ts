@@ -127,6 +127,20 @@ describe("AgentDefinition", () => {
     );
   });
 
+  it("rejects unknown context modes", () => {
+    assert.throws(
+      () => parseAgentDefinition({ ...validDefinition, context: { inherit: "everything" } }),
+      /context\.inherit must be one of: none, summary, fork, full/,
+    );
+  });
+
+  it("rejects invalid sandbox permission values", () => {
+    assert.throws(
+      () => parseAgentDefinition({ ...validDefinition, sandbox: { network: "allow-all" } }),
+      /sandbox\.network must be one of: none, docs-only, ask, allow/,
+    );
+  });
+
   it("rejects reserved tool names", () => {
     assert.throws(() => parseAgentDefinition({ ...validDefinition, name: "subagent_spawn" }), /reserved for a subagent tool/);
   });
