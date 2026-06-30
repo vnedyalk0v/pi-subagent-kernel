@@ -86,9 +86,12 @@ describe("MockExecutionBackend", () => {
     assert.match(result.summary, /No longer needed/);
   });
 
-  it("rejects unknown mock run IDs clearly", async () => {
+  it("rejects duplicate and unknown mock run IDs clearly", async () => {
     const backend = new MockExecutionBackend();
 
+    await backend.spawn(spawnInput("run_duplicate"));
+
+    await assert.rejects(() => backend.spawn(spawnInput("run_duplicate")), /Duplicate mock run "run_duplicate"/);
     await assert.rejects(() => backend.status("run_missing"), /Unknown mock run "run_missing"/);
   });
 });
