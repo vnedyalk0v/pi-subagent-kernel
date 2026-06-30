@@ -3,12 +3,22 @@ import { describe, it } from "node:test";
 
 import { parseRunEnvelope } from "../../src/contracts/index.ts";
 import { AgentRegistry, RunRegistry } from "../../src/registry/index.ts";
-import { createSubagentTools, SubagentToolValidationError } from "../../src/tools/subagent-tools.ts";
+import { createSubagentToolServices, createSubagentTools, SubagentToolValidationError } from "../../src/tools/subagent-tools.ts";
 
 function spawnTool() {
   const tool = createSubagentTools().find((item) => item.name === "subagent_spawn");
   assert.ok(tool);
   return tool;
+}
+
+function toolForAgent(agent: unknown) {
+  const agents = new AgentRegistry();
+  agents.register(agent);
+  const services = { agents, runs: new RunRegistry() };
+  const tool = createSubagentTools(services)[0];
+  assert.ok(tool);
+  assert.equal(tool.name, "subagent_spawn");
+  return { services, tool };
 }
 
 describe("subagent_spawn", () => {
@@ -85,6 +95,123 @@ describe("subagent_spawn", () => {
     assert.equal(result.details.tool, "subagent_spawn");
     assert.equal(result.details.limits.maxRuntimeSec, 1800);
     assert.equal(result.details.limits.maxCostUsd, 1);
+  });
+
+  it("caps spawn policy depth and thread defaults before backend runs", async () => {
+    const { tool } = toolForAgent({
+      name: "wide",
+      description: "Agent requesting oversized fanout caps.",
+      instructions: "Return a mock result.",
+      runtime: "sdk",
+      tools: ["read"],
+      permissions: { filesystem: "read-only", network: "none", shell: "none" },
+      limits: { maxDepth: 99, maxThreads: 99 },
+    });
+
+    const result = await tool.execute("call_1", { agent: "wide", task: "Inspect README.md" });
+
+    assert.equal(result.details.tool, "subagent_spawn");
+    assert.equal(result.details.policy.maxDepth, 1);
+    assert.equal(result.details.policy.maxThreads, 4);
+    assert.equal(result.details.policy.nestedSubagents, false);
+  });
+
+  it("enforces maxThreads before starting the backend", async () => {
+    const { services, tool } = toolForAgent({
+      name: "scoutish",
+      description: "Read-only scout.",
+      instructions: "Return a mock result.",
+      runtime: "sdk",
+      tools: ["read"],
+      permissions: { filesystem: "read-only", network: "none", shell: "none" },
+    });
+    for (let index = 0; index < 4; index += 1) {
+      services.runs.create({ id: `run_active_${index}`, agent: "scoutish", task: "Queued." });
+    }
+
+    await assert.rejects(
+      () => tool.execute("call_1", { agent: "scoutish", task: "Inspect README.md" }),
+      (error) => error instanceof SubagentToolValidationError && /maxThreads=4/.test(error.message),
+    );
+    assert.equal(services.runs.list().length, 4);
+  });
+
+  it("rejects unsafe tool allowlists before starting the backend", async () => {
+    const { services, tool } = toolForAgent({
+      name: "writer",
+      description: "Unsafe writer.",
+      instructions: "Write files.",
+      runtime: "sdk",
+      tools: ["write"],
+      permissions: { filesystem: "read-only", network: "none", shell: "none" },
+    });
+
+    await assert.rejects(
+      () => tool.execute("call_1", { agent: "writer", task: "Edit a file." }),
+      (error) => error instanceof SubagentToolValidationError && /write tool "write" is denied/.test(error.message),
+    );
+    assert.equal(services.runs.list().length, 0);
+  });
+
+  it("rejects file context when filesystem access is none", async () => {
+    const services = createSubagentToolServices();
+    const tool = createSubagentTools(services)[0];
+    assert.ok(tool);
+
+    await assert.rejects(
+      () => tool.execute("call_1", { agent: "summarizer", task: "Summarize.", context: { inherit: "summary", files: ["secret.txt"] } }),
+      (error) => error instanceof SubagentToolValidationError && /file hints and diff context require filesystem read access/.test(error.message),
+    );
+    assert.equal(services.runs.list().length, 0);
+  });
+
+  it("rejects nested subagents by default", async () => {
+    const { tool } = toolForAgent({
+      name: "coordinator",
+      description: "Nested coordinator.",
+      instructions: "Spawn children.",
+      runtime: "sdk",
+      tools: ["subagent_spawn"],
+      nestedSubagents: true,
+      limits: { maxDepth: 2 },
+    });
+
+    await assert.rejects(
+      () => tool.execute("call_1", { agent: "coordinator", task: "Spawn a child." }),
+      (error) => error instanceof SubagentToolValidationError && /nestedSubagents/.test(error.message),
+    );
+  });
+
+  it("rejects unsafe runtime and tool combinations", async () => {
+    const { tool } = toolForAgent({
+      name: "sdk-tester",
+      description: "SDK agent requesting shell.",
+      instructions: "Run tests.",
+      runtime: "sdk",
+      tools: ["bash:test-only"],
+      permissions: { filesystem: "read-only", network: "none", shell: "test-only" },
+    });
+
+    await assert.rejects(
+      () => tool.execute("call_1", { agent: "sdk-tester", task: "Run npm test." }),
+      (error) => error instanceof SubagentToolValidationError && /requires subprocess runtime/.test(error.message),
+    );
+  });
+
+  it("rejects unsafe sandbox policy requests", async () => {
+    const { tool } = toolForAgent({
+      name: "online",
+      description: "Networked agent.",
+      instructions: "Fetch docs.",
+      runtime: "sdk",
+      tools: ["read"],
+      permissions: { filesystem: "read-only", network: "allow", shell: "none" },
+    });
+
+    await assert.rejects(
+      () => tool.execute("call_1", { agent: "online", task: "Fetch docs." }),
+      (error) => error instanceof SubagentToolValidationError && /network access requires explicit policy/.test(error.message),
+    );
   });
 
   it("rejects invalid or unsupported spawn input", async () => {
