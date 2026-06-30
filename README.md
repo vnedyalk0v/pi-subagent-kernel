@@ -1,5 +1,7 @@
 # Pi SubAgent Kernel
 
+[![CI](https://github.com/vnedyalk0v/pi-subagent-kernel/actions/workflows/ci.yml/badge.svg)](https://github.com/vnedyalk0v/pi-subagent-kernel/actions/workflows/ci.yml)
+
 This repository is intended to be the starting documentation set and staged implementation for a better SubAgents implementation for the Pi Coding Agent.
 
 It contains source-backed specifications plus the TypeScript package work as it is built. The documents separate **verified external facts** from **design recommendations** so an AI coding agent can build from them without turning research notes into false requirements.
