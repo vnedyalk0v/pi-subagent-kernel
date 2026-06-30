@@ -193,7 +193,7 @@ function spawnTool(services: SubagentToolServices): PiToolDefinition {
 
       const runtime = resolveRuntime(request.runtime, agent.runtime);
       const policy = effectivePermissionPolicy(agent);
-      enforceSpawnSafety(agent, runtime, services, policy);
+      enforceSpawnSafety(agent, runtime, services, policy, request);
       const maxRuntimeCap = Math.min(agent.maxRuntimeSec ?? GLOBAL_MAX_RUNTIME_SEC, GLOBAL_MAX_RUNTIME_SEC);
       const maxCostCap = Math.min(agent.maxCostUsd ?? GLOBAL_MAX_COST_USD, GLOBAL_MAX_COST_USD);
       const limits = {
@@ -592,10 +592,14 @@ function enforceSpawnSafety(
   runtime: ExecutionBackendId,
   services: SubagentToolServices,
   policy: PermissionPolicy,
+  request: SpawnToolInput,
 ): void {
   const activeRuns = services.runs.list().filter((run) => ACTIVE_RUN_STATES.has(run.status)).length;
   if (activeRuns >= policy.maxThreads) {
     throw new SubagentToolValidationError(`policy.maxThreads: ${activeRuns} active run(s) already meet the maxThreads=${policy.maxThreads} cap.`);
+  }
+  if (policy.filesystem === "none" && (request.context?.files?.length || request.context?.includeDiff)) {
+    throw new SubagentToolValidationError("policy.filesystem: file hints and diff context require filesystem read access.");
   }
   if (agent.nestedSubagents) {
     throw new SubagentToolValidationError(`policy.nestedSubagents: agent "${agent.name}" requests nested subagents, but the default policy denies them.`);

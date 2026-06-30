@@ -3,7 +3,7 @@ import { describe, it } from "node:test";
 
 import { parseRunEnvelope } from "../../src/contracts/index.ts";
 import { AgentRegistry, RunRegistry } from "../../src/registry/index.ts";
-import { createSubagentTools, SubagentToolValidationError } from "../../src/tools/subagent-tools.ts";
+import { createSubagentToolServices, createSubagentTools, SubagentToolValidationError } from "../../src/tools/subagent-tools.ts";
 
 function spawnTool() {
   const tool = createSubagentTools().find((item) => item.name === "subagent_spawn");
@@ -149,6 +149,18 @@ describe("subagent_spawn", () => {
     await assert.rejects(
       () => tool.execute("call_1", { agent: "writer", task: "Edit a file." }),
       (error) => error instanceof SubagentToolValidationError && /write tool "write" is denied/.test(error.message),
+    );
+    assert.equal(services.runs.list().length, 0);
+  });
+
+  it("rejects file context when filesystem access is none", async () => {
+    const services = createSubagentToolServices();
+    const tool = createSubagentTools(services)[0];
+    assert.ok(tool);
+
+    await assert.rejects(
+      () => tool.execute("call_1", { agent: "summarizer", task: "Summarize.", context: { inherit: "summary", files: ["secret.txt"] } }),
+      (error) => error instanceof SubagentToolValidationError && /file hints and diff context require filesystem read access/.test(error.message),
     );
     assert.equal(services.runs.list().length, 0);
   });
