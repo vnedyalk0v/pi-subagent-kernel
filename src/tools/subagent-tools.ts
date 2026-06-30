@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 
+import { MockExecutionBackend } from "../backends/index.ts";
 import {
   parsePermissionPolicy,
-  parseRunEnvelope,
   parseSpawnInput,
   RUN_ENVELOPE_RUNTIMES,
   type ExecutionBackendId,
@@ -10,7 +10,6 @@ import {
   type RunEnvelope,
   type RunError,
   type RunStatus,
-  type SpawnInput,
 } from "../contracts/index.ts";
 import { AgentRegistry, registerBuiltInAgents, RunRegistry } from "../registry/index.ts";
 
@@ -216,7 +215,9 @@ function spawnTool(services: SubagentToolServices): PiToolDefinition {
       const run = services.runs.create({ id: runId, agent: agent.name, task: request.task, runtime });
       const started = services.runs.updateState(run.id, "starting", { runtime, summary: "Starting mock backend." });
       services.runs.updateState(run.id, "running", { summary: `Mock ${agent.name} running.` });
-      const result = runMockBackend(spawnInput, runtime, started.startedAt ?? new Date().toISOString());
+      const backend = new MockExecutionBackend({ id: runtime, now: () => new Date(started.startedAt ?? Date.now()) });
+      await backend.spawn(spawnInput);
+      const result = await backend.result(run.id);
       services.runs.storeResult(result);
       const status = services.runs.status(run.id);
 
@@ -389,29 +390,6 @@ function cancelTool(services: SubagentToolServices): PiToolDefinition {
       };
     },
   };
-}
-
-function runMockBackend(input: SpawnInput, runtime: ExecutionBackendId, startedAt: string): RunEnvelope {
-  const endedAt = new Date(Date.parse(startedAt) + 1).toISOString();
-  return parseRunEnvelope({
-    id: input.runId,
-    ...(input.context.parentRunId !== undefined ? { parentRunId: input.context.parentRunId } : {}),
-    agent: input.agent.name,
-    runtime,
-    contextMode: input.context.mode,
-    status: "completed",
-    startedAt,
-    endedAt,
-    summary: `Mock ${input.agent.name} completed: ${input.task}`,
-    findings: [],
-    artifacts: [],
-    filesRead: input.context.files,
-    filesChanged: [],
-    testsRun: [],
-    cost: { estimatedUsd: null },
-    confidence: 1,
-    nextActions: ["Replace the mock backend with real execution before relying on subagent output."],
-  });
 }
 
 function objectSchema(properties: Record<string, JsonSchema>, required: string[] = []): JsonSchema {

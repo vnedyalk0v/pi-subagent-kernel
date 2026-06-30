@@ -33,6 +33,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "tsc -p tsconfig.json --noEmit --noUnusedLocals --noUnusedParameters",
     "test": "node --test tests/**/*.test.ts",
+    "demo:mock": "npm run build && node examples/mock-backend-demo.mjs",
     "prepack": "npm run build"
   },
   "devDependencies": {
