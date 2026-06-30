@@ -6,9 +6,19 @@ It contains source-backed specifications plus the TypeScript package work as it 
 
 ## Current implementation status
 
-The package exports core contracts, in-memory agent and run registries, safe built-in MVP agent definitions (`scout`, `reviewer`, `tester`, `summarizer`), a `.pi/agents/*.md` loader that requires explicit project trust, and a Pi extension entrypoint that registers the canonical MVP tool names. `subagent_spawn` now returns structured mock-backend results from `MockExecutionBackend`, `subagent_status` lists or returns in-memory run status, `subagent_result` returns stored envelopes or running status, and `subagent_cancel` cancels queued or active in-memory runs until their M4 issues. `tests/extension/extension.test.ts` is the mock extension-load harness for local validation without a live Pi session.
+The package exports core contracts, in-memory agent and run registries, safe built-in MVP agent definitions (`scout`, `reviewer`, `tester`, `summarizer`), a `.pi/agents/*.md` loader that requires explicit project trust, and a Pi extension entrypoint that registers the canonical MVP tool names. `subagent_spawn` now returns structured mock-backend results from `MockExecutionBackend`, `subagent_status` lists or returns in-memory run status, `subagent_result` returns stored envelopes or running status, and `subagent_cancel` cancels queued or active in-memory runs. `tests/extension/extension.test.ts` is the mock extension-load harness for local validation without a live Pi session.
 
-Run `npm run demo:mock` for a local deterministic mock backend demo. It builds the package and prints a structured `RunEnvelope` subset without calling an external AI service.
+## Local mock demo
+
+Verified command:
+
+```bash
+npm run demo:mock
+```
+
+The command builds the package and runs `examples/mock-backend-demo.mjs`. It prints JSON showing a local `subagent_spawn` → `subagent_status` → `subagent_result` flow plus `subagent_cancel` on a queued in-memory run.
+
+This demo is mock-only: it exercises local tool handlers and `MockExecutionBackend`; it does not start Pi, spawn a subprocess, call a model, or use the network.
 
 ## What to build
 
