@@ -44,6 +44,8 @@ interface SubprocessRun {
   timedOut: boolean;
   cancelReason?: string;
   rpcError?: string;
+  promptCommand: string;
+  promptSent: boolean;
   finished: boolean;
   exited: boolean;
   timeout: NodeJS.Timeout;
@@ -64,8 +66,8 @@ export class SubprocessExecutionBackend implements ExecutionBackend {
   readonly #runs = new Map<string, SubprocessRun>();
 
   constructor(options: SubprocessExecutionBackendOptions = {}) {
-    this.#command = options.command ?? "pi";
-    this.#args = options.args ?? buildPiRpcArgs;
+    this.#command = options.command ?? (process.platform === "win32" ? "cmd.exe" : "pi");
+    this.#args = options.args ?? (process.platform === "win32" && options.command === undefined ? buildWindowsPiRpcArgs : buildPiRpcArgs);
     this.#cwd = options.cwd;
     this.#env = options.env;
     this.#now = options.now ?? (() => new Date());
@@ -82,7 +84,8 @@ export class SubprocessExecutionBackend implements ExecutionBackend {
       throw new Error("context.mode fork is not supported by the subprocess alpha backend.");
     }
 
-    const rpcInput = buildRpcInput(normalized);
+    const thinkingCommand = buildThinkingCommand(normalized);
+    const promptCommand = buildPromptCommand(normalized);
     const startedAt = this.#now().toISOString();
     const status = parseRunStatus({
       id: normalized.runId,
@@ -115,6 +118,8 @@ export class SubprocessExecutionBackend implements ExecutionBackend {
       stdoutBuffer: "",
       discardingStdoutLine: false,
       timedOut: false,
+      promptCommand,
+      promptSent: false,
       finished: false,
       exited: false,
       timeout,
@@ -124,12 +129,11 @@ export class SubprocessExecutionBackend implements ExecutionBackend {
     this.#runs.set(normalized.runId, run);
     this.#attach(run);
 
-    child.stdin.write(rpcInput, (error) => {
-      if (error && !run.finished && !run.timedOut && !run.cancelReason) {
-        this.#finish(run, "error", { error });
-        this.#terminate(run, false);
-      }
-    });
+    if (thinkingCommand) {
+      this.#writeRpc(run, thinkingCommand);
+    } else {
+      this.#sendPrompt(run);
+    }
     return status;
   }
 
@@ -233,10 +237,16 @@ export class SubprocessExecutionBackend implements ExecutionBackend {
     if (run.timedOut || run.cancelReason) {
       return;
     }
-    if (event?.type === "response" && (event.command === "prompt" || event.command === "set_thinking_level") && event.success === false) {
-      run.rpcError = typeof event.error === "string" ? event.error : `RPC ${String(event.command)} command was rejected.`;
-      this.#finish(run, "rpc_rejected");
-      this.#terminate(run, false);
+    if (event?.type === "response" && (event.command === "prompt" || event.command === "set_thinking_level")) {
+      if (event.success === false) {
+        run.rpcError = typeof event.error === "string" ? event.error : `RPC ${String(event.command)} command was rejected.`;
+        this.#finish(run, "rpc_rejected");
+        this.#terminate(run, false);
+        return;
+      }
+      if (event.command === "set_thinking_level") {
+        this.#sendPrompt(run);
+      }
       return;
     }
     if (event?.type !== "agent_end") {
@@ -249,6 +259,23 @@ export class SubprocessExecutionBackend implements ExecutionBackend {
     }
     this.#finish(run, "agent_end");
     this.#terminate(run, false);
+  }
+
+  #sendPrompt(run: SubprocessRun): void {
+    if (run.promptSent || run.finished || run.timedOut || run.cancelReason) {
+      return;
+    }
+    run.promptSent = true;
+    this.#writeRpc(run, run.promptCommand);
+  }
+
+  #writeRpc(run: SubprocessRun, command: string): void {
+    run.child.stdin.write(command, (error) => {
+      if (error && !run.finished && !run.timedOut && !run.cancelReason) {
+        this.#finish(run, "error", { error });
+        this.#terminate(run, false);
+      }
+    });
   }
 
   #timeout(runId: string): void {
@@ -410,6 +437,10 @@ export class SubprocessExecutionBackend implements ExecutionBackend {
   }
 }
 
+function buildWindowsPiRpcArgs(input: SpawnInput): readonly string[] {
+  return ["/d", "/s", "/c", "pi", ...buildPiRpcArgs(input)];
+}
+
 export function buildPiRpcArgs(input: SpawnInput): readonly string[] {
   const tools = input.policy.filesystem === "none" || input.agent.sandbox.filesystem === "none"
     ? []
@@ -432,17 +463,19 @@ export function buildPiRpcArgs(input: SpawnInput): readonly string[] {
   return tools.length > 0 ? [...args, ...modelArgs, "--tools", tools.join(",")] : [...args, ...modelArgs, "--no-tools"];
 }
 
-function buildRpcInput(input: SpawnInput): string {
-  const commands = [];
+function buildThinkingCommand(input: SpawnInput): string | undefined {
   const thinking = input.agent.thinking ?? input.agent.reasoning;
-  if (thinking) {
-    if (!RPC_THINKING_LEVELS.has(thinking)) {
-      throw new Error(`agent.thinking "${thinking}" is not supported by Pi RPC subprocess mode.`);
-    }
-    commands.push({ id: `${input.runId}:thinking`, type: "set_thinking_level", level: thinking });
+  if (!thinking) {
+    return undefined;
   }
-  commands.push({ id: `${input.runId}:prompt`, type: "prompt", message: buildChildPrompt(input) });
-  return `${commands.map((command) => JSON.stringify(command)).join("\n")}\n`;
+  if (!RPC_THINKING_LEVELS.has(thinking)) {
+    throw new Error(`agent.thinking "${thinking}" is not supported by Pi RPC subprocess mode.`);
+  }
+  return `${JSON.stringify({ id: `${input.runId}:thinking`, type: "set_thinking_level", level: thinking })}\n`;
+}
+
+function buildPromptCommand(input: SpawnInput): string {
+  return `${JSON.stringify({ id: `${input.runId}:prompt`, type: "prompt", message: buildChildPrompt(input) })}\n`;
 }
 
 function buildChildPrompt(input: SpawnInput): string {
@@ -512,6 +545,7 @@ function minimalEnv(): NodeJS.ProcessEnv {
     ...(process.env.PATH ? { PATH: process.env.PATH } : {}),
     ...(process.env.HOME ? { HOME: process.env.HOME } : {}),
     ...(process.env.TMPDIR ? { TMPDIR: process.env.TMPDIR } : {}),
+    ...(process.env.PI_CODING_AGENT_DIR ? { PI_CODING_AGENT_DIR: process.env.PI_CODING_AGENT_DIR } : {}),
     PI_TELEMETRY: "0",
   };
 }

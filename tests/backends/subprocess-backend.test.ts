@@ -99,6 +99,17 @@ describe("SubprocessExecutionBackend", () => {
     assert.match(result.summary, /bad config/);
   });
 
+  it("waits for thinking configuration before prompting", async () => {
+    const subprocess = backend("subprocess-rpc-thinking.mjs");
+    const input = { ...spawnInput("run_subprocess_thinking"), agent: { ...agent, thinking: "medium" } } as SpawnInput;
+    await subprocess.spawn(input);
+
+    const result = await subprocess.result("run_subprocess_thinking");
+
+    assert.equal(result.status, "completed");
+    assert.equal(result.summary, "thinking applied");
+  });
+
   it("bounds stdout capture and the pending parse buffer", async () => {
     const subprocess = backend("subprocess-large-stdout.mjs");
     await subprocess.spawn(spawnInput("run_subprocess_large_stdout", 5));
