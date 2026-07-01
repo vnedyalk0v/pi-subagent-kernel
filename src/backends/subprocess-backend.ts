@@ -87,6 +87,9 @@ export class SubprocessExecutionBackend implements ExecutionBackend {
     if (normalized.context.mode === "fork") {
       throw new Error("context.mode fork is not supported by the subprocess alpha backend.");
     }
+    if ((normalized.policy.filesystem === "none" || normalized.agent.sandbox.filesystem === "none") && normalized.context.files.length > 0) {
+      throw new Error("context.files are not supported when filesystem access is none.");
+    }
 
     const thinkingCommand = buildThinkingCommand(normalized);
     const promptCommand = buildPromptCommand(normalized);
@@ -309,13 +312,9 @@ export class SubprocessExecutionBackend implements ExecutionBackend {
     if (!run.child.stdin.destroyed && !run.child.stdin.writableEnded) {
       run.child.stdin.end();
     }
-    if (process.platform !== "win32" || !run.exited) {
-      killChild(run, "SIGTERM");
-    }
+    killChild(run, "SIGTERM");
     run.hardKill ??= setTimeout(() => {
-      if (process.platform !== "win32" || !run.exited) {
-        killChild(run, "SIGKILL");
-      }
+      killChild(run, "SIGKILL");
     }, this.#killGraceMs);
   }
 
@@ -333,12 +332,14 @@ export class SubprocessExecutionBackend implements ExecutionBackend {
   }
 
   #envelope(run: SubprocessRun, reason: FinishReason, endedAt: string, spawnError?: Error): RunEnvelope {
-    if (reason === "agent_end" || (reason === "exit" && run.exitCode === 0)) {
+    if (reason === "agent_end" || reason === "exit") {
       const parsed = this.#parseChildResult(run, endedAt);
       if (parsed) {
         return parsed;
       }
-      return this.#failed(run, endedAt, "SUBPROCESS_INVALID_RESULT", "Subprocess output did not contain a valid RunEnvelope.", false);
+      if (reason === "agent_end" || run.exitCode === 0) {
+        return this.#failed(run, endedAt, "SUBPROCESS_INVALID_RESULT", "Subprocess output did not contain a valid RunEnvelope.", false);
+      }
     }
     if (reason === "timeout") {
       return this.#failed(run, endedAt, "SUBPROCESS_TIMEOUT", "Subprocess exceeded maxRuntimeSec and was terminated.", true, "expired");
@@ -542,7 +543,7 @@ function buildPromptCommand(input: SpawnInput): string {
 function sanitizeChildError(error: NonNullable<RunEnvelope["error"]>): NonNullable<RunEnvelope["error"]> {
   return {
     code: error.code,
-    message: error.message,
+    message: "Child subprocess reported failure.",
     retryable: error.retryable,
     ...(error.details !== undefined ? { details: { redacted: true } } : {}),
   };

@@ -106,7 +106,20 @@ describe("SubprocessExecutionBackend", () => {
     const result = await subprocess.result("run_subprocess_failed_details");
 
     assert.equal(result.status, "failed");
+    assert.equal(result.error?.message, "Child subprocess reported failure.");
     assert.deepEqual(result.error?.details, { redacted: true });
+  });
+
+  it("parses valid failure envelopes from nonzero exits", async () => {
+    const subprocess = backend("subprocess-failed-envelope-nonzero.mjs");
+    await subprocess.spawn(spawnInput("run_subprocess_failed_nonzero", 5));
+
+    const result = await subprocess.result("run_subprocess_failed_nonzero");
+
+    assert.equal(result.status, "failed");
+    assert.equal(result.error?.code, "CHILD_FAILED");
+    assert.equal(result.error?.message, "Child subprocess reported failure.");
+    assert.equal(result.error?.retryable, true);
   });
 
   it("waits for thinking configuration before prompting", async () => {
@@ -200,6 +213,13 @@ describe("SubprocessExecutionBackend", () => {
 
     await assert.rejects(() => subprocess.spawn(full), /context\.mode full requires explicit policy approval/);
     await assert.rejects(() => subprocess.spawn(fork), /context\.mode fork is not supported/);
+  });
+
+  it("rejects file hints when filesystem access is none", async () => {
+    const subprocess = backend("subprocess-rpc-success.mjs");
+    const input = { ...spawnInput("run_subprocess_file_hints_none"), policy: { filesystem: "none" } } as SpawnInput;
+
+    await assert.rejects(() => subprocess.spawn(input), /context\.files/);
   });
 
   it("rejects runtime limits larger than Node timers support", async () => {
