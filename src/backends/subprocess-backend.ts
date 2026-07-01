@@ -1,6 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { existsSync } from "node:fs";
-import { delimiter, isAbsolute, join, resolve } from "node:path";
+import { delimiter, isAbsolute, join, resolve, sep } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 
 import {
@@ -39,6 +39,7 @@ interface SubprocessRun {
   status: RunStatus;
   stdout: string;
   stderr: string;
+  parseStdout: string;
   stdoutBuffer: string;
   discardingStdoutLine: boolean;
   finalText?: string;
@@ -69,7 +70,7 @@ export class SubprocessExecutionBackend implements ExecutionBackend {
   readonly #runs = new Map<string, SubprocessRun>();
 
   constructor(options: SubprocessExecutionBackendOptions = {}) {
-    this.#command = options.command ?? (process.platform === "win32" ? "cmd.exe" : "pi");
+    this.#command = options.command ?? (process.platform === "win32" ? "cmd.exe" : resolvePiCommand(["pi"]));
     this.#args = options.args ?? (process.platform === "win32" && options.command === undefined ? buildWindowsPiRpcArgs : buildPiRpcArgs);
     this.#cwd = options.cwd;
     this.#env = options.env;
@@ -118,6 +119,7 @@ export class SubprocessExecutionBackend implements ExecutionBackend {
       status,
       stdout: "",
       stderr: "",
+      parseStdout: "",
       stdoutBuffer: "",
       discardingStdoutLine: false,
       timedOut: false,
@@ -169,12 +171,14 @@ export class SubprocessExecutionBackend implements ExecutionBackend {
     run.child.stdout.on("data", (chunk: Buffer) => {
       const text = decoder.write(chunk);
       run.stdout = appendCapture(run.stdout, text);
+      run.parseStdout = appendParseCapture(run.parseStdout, text);
       this.#appendStdoutBuffer(run, text);
     });
     run.child.stdout.on("end", () => {
       const text = decoder.end();
       if (text) {
         run.stdout = appendCapture(run.stdout, text);
+        run.parseStdout = appendParseCapture(run.parseStdout, text);
         this.#appendStdoutBuffer(run, text);
       }
       this.#handleStdoutLine(run, run.stdoutBuffer);
@@ -351,7 +355,7 @@ export class SubprocessExecutionBackend implements ExecutionBackend {
   }
 
   #parseChildResult(run: SubprocessRun, endedAt: string): RunEnvelope | undefined {
-    const text = run.finalText ?? run.stdout.trim();
+    const text = run.finalText ?? run.parseStdout.trim();
     if (!text) {
       return undefined;
     }
@@ -397,7 +401,7 @@ export class SubprocessExecutionBackend implements ExecutionBackend {
           exitCode: run.exitCode ?? null,
           signal: run.signal ?? null,
           stdout: redactRpcStdout(run.stdout),
-          stderr: run.stderr,
+          stderr: run.stderr ? "[redacted]" : "",
         },
       },
     });
@@ -449,19 +453,32 @@ function buildWindowsPiRpcArgs(input: SpawnInput): readonly string[] {
 
 function resolveWindowsPiCommand(): string {
   const extensions = (process.env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD").split(";").filter(Boolean);
+  return resolvePiCommand(extensions.map((extension) => `pi${extension.toLowerCase()}`));
+}
+
+function resolvePiCommand(names: readonly string[]): string {
   for (const rawDir of (process.env.PATH ?? "").split(delimiter)) {
     const dir = rawDir.replace(/^"|"$/g, "");
-    if (!dir || !isAbsolute(dir) || resolve(dir) === process.cwd()) {
+    if (!isTrustedPathDir(dir)) {
       continue;
     }
-    for (const extension of extensions) {
-      const candidate = join(dir, `pi${extension.toLowerCase()}`);
+    for (const name of names) {
+      const candidate = join(dir, name);
       if (existsSync(candidate)) {
         return candidate;
       }
     }
   }
-  throw new Error("Unable to resolve a trusted Pi command from PATH for the default Windows subprocess backend.");
+  throw new Error("Unable to resolve a trusted Pi command from PATH for the default subprocess backend.");
+}
+
+function isTrustedPathDir(dir: string): boolean {
+  if (!dir || !isAbsolute(dir)) {
+    return false;
+  }
+  const resolvedDir = resolve(dir);
+  const cwd = process.cwd();
+  return resolvedDir !== cwd && !resolvedDir.startsWith(`${cwd}${sep}`);
 }
 
 export function buildPiRpcArgs(input: SpawnInput): readonly string[] {
@@ -561,6 +578,11 @@ function parseJsonObject(line: string): Record<string, unknown> | undefined {
 function appendCapture(current: string, chunk: string): string {
   const next = current + chunk;
   return next.length <= MAX_CAPTURE_BYTES ? next : `${next.slice(0, MAX_CAPTURE_BYTES)}\n[truncated]`;
+}
+
+function appendParseCapture(current: string, chunk: string): string {
+  const next = current + chunk;
+  return next.length <= MAX_STDOUT_LINE_BYTES ? next : next.slice(0, MAX_STDOUT_LINE_BYTES);
 }
 
 function minimalEnv(): NodeJS.ProcessEnv {

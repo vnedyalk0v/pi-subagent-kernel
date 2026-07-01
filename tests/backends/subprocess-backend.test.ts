@@ -72,7 +72,7 @@ describe("SubprocessExecutionBackend", () => {
     assert.equal(result.error?.code, "SUBPROCESS_EXIT_NONZERO");
     assert.equal(result.error?.details?.exitCode, 2);
     assert.match(String(result.error?.details?.stdout), /partial stdout/);
-    assert.match(String(result.error?.details?.stderr), /fixture failed/);
+    assert.equal(result.error?.details?.stderr, "[redacted]");
   });
 
   it("returns a failed envelope when stdout has no valid RunEnvelope", async () => {
@@ -139,6 +139,16 @@ describe("SubprocessExecutionBackend", () => {
 
     assert.equal(result.status, "completed");
     assert.equal(result.summary, "large agent_end parsed");
+  });
+
+  it("parses raw envelopes larger than the failure capture cap", async () => {
+    const subprocess = backend("subprocess-large-raw-envelope.mjs");
+    await subprocess.spawn(spawnInput("run_subprocess_large_raw", 5));
+
+    const result = await subprocess.result("run_subprocess_large_raw");
+
+    assert.equal(result.status, "completed");
+    assert.equal(result.summary, "large raw envelope parsed");
   });
 
   it("expires and kills a child process after timeout", async () => {
