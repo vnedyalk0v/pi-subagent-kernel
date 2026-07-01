@@ -96,7 +96,8 @@ export class SubprocessExecutionBackend implements ExecutionBackend {
     const timeoutMs = toTimeoutMs(normalized.limits.maxRuntimeSec);
     const child = spawn(this.#command, this.#resolveArgs(normalized), {
       cwd: this.#cwd,
-      env: this.#env ? { ...process.env, PI_TELEMETRY: "0", ...this.#env } : { ...process.env, PI_TELEMETRY: "0" },
+      detached: process.platform !== "win32",
+      env: this.#env ?? minimalEnv(),
       stdio: "pipe",
     });
     const timeout = setTimeout(() => this.#timeout(normalized.runId), timeoutMs);
@@ -120,7 +121,7 @@ export class SubprocessExecutionBackend implements ExecutionBackend {
     this.#attach(run);
 
     child.stdin.write(buildPromptCommand(normalized), (error) => {
-      if (error && !run.finished) {
+      if (error && !run.finished && !run.timedOut && !run.cancelReason) {
         this.#finish(run, "error", { error });
         this.#terminate(run, false);
       }
@@ -172,8 +173,9 @@ export class SubprocessExecutionBackend implements ExecutionBackend {
       run.stderr = appendCapture(run.stderr, chunk.toString("utf8"));
     });
     run.child.stdin.on("error", (error) => {
-      if (!run.finished) {
+      if (!run.finished && !run.timedOut && !run.cancelReason) {
         this.#finish(run, "error", { error });
+        this.#terminate(run, false);
       }
     });
     run.child.on("error", (error) => this.#finish(run, "error", { error }));
@@ -264,11 +266,11 @@ export class SubprocessExecutionBackend implements ExecutionBackend {
       run.child.stdin.end();
     }
     if (!run.exited) {
-      run.child.kill("SIGTERM");
+      killChild(run, "SIGTERM");
     }
     run.hardKill ??= setTimeout(() => {
       if (!run.exited) {
-        run.child.kill("SIGKILL");
+        killChild(run, "SIGKILL");
       }
     }, this.#killGraceMs);
   }
@@ -484,13 +486,36 @@ function appendCapture(current: string, chunk: string): string {
   return next.length <= MAX_CAPTURE_BYTES ? next : `${next.slice(0, MAX_CAPTURE_BYTES)}\n[truncated]`;
 }
 
+function minimalEnv(): NodeJS.ProcessEnv {
+  return {
+    ...(process.env.PATH ? { PATH: process.env.PATH } : {}),
+    ...(process.env.HOME ? { HOME: process.env.HOME } : {}),
+    ...(process.env.TMPDIR ? { TMPDIR: process.env.TMPDIR } : {}),
+    PI_TELEMETRY: "0",
+  };
+}
+
+function killChild(run: SubprocessRun, signal: NodeJS.Signals): void {
+  try {
+    if (process.platform !== "win32" && run.child.pid) {
+      process.kill(-run.child.pid, signal);
+      return;
+    }
+    run.child.kill(signal);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ESRCH") {
+      throw error;
+    }
+  }
+}
+
 function redactRpcStdout(stdout: string): string {
   return stdout
     .split("\n")
     .map((line) => {
       const event = parseJsonObject(line);
       if (!event) {
-        return line;
+        return line.trimStart().startsWith("{") ? "[redacted malformed JSONL]" : line;
       }
       for (const key of ["message", "messages", "assistantMessageEvent"]) {
         if (Object.hasOwn(event, key)) {
