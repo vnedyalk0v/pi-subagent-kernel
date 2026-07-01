@@ -122,6 +122,7 @@ export class SubprocessExecutionBackend implements ExecutionBackend {
     child.stdin.write(buildPromptCommand(normalized), (error) => {
       if (error && !run.finished) {
         this.#finish(run, "error", { error });
+        this.#terminate(run, false);
       }
     });
     return status;
@@ -361,7 +362,7 @@ export class SubprocessExecutionBackend implements ExecutionBackend {
         details: {
           exitCode: run.exitCode ?? null,
           signal: run.signal ?? null,
-          stdout: run.stdout,
+          stdout: redactRpcStdout(run.stdout),
           stderr: run.stderr,
         },
       },
@@ -406,7 +407,9 @@ export class SubprocessExecutionBackend implements ExecutionBackend {
 }
 
 export function buildPiRpcArgs(input: SpawnInput): readonly string[] {
-  const tools = input.policy.filesystem === "none" ? [] : READ_ONLY_PI_TOOLS.filter((tool) => input.agent.tools.includes(tool));
+  const tools = input.policy.filesystem === "none"
+    ? []
+    : READ_ONLY_PI_TOOLS.filter((tool) => input.agent.tools.includes(tool) && !input.agent.disallowedTools.includes(tool));
   const args = [
     "--mode",
     "rpc",
@@ -419,7 +422,8 @@ export function buildPiRpcArgs(input: SpawnInput): readonly string[] {
     "--no-prompt-templates",
     "--no-themes",
   ];
-  return tools.length > 0 ? [...args, "--tools", tools.join(",")] : [...args, "--no-tools"];
+  const modelArgs = input.agent.model === "inherit" ? [] : ["--model", input.agent.model];
+  return tools.length > 0 ? [...args, ...modelArgs, "--tools", tools.join(",")] : [...args, ...modelArgs, "--no-tools"];
 }
 
 function buildPromptCommand(input: SpawnInput): string {
@@ -478,6 +482,24 @@ function parseJsonObject(line: string): Record<string, unknown> | undefined {
 function appendCapture(current: string, chunk: string): string {
   const next = current + chunk;
   return next.length <= MAX_CAPTURE_BYTES ? next : `${next.slice(0, MAX_CAPTURE_BYTES)}\n[truncated]`;
+}
+
+function redactRpcStdout(stdout: string): string {
+  return stdout
+    .split("\n")
+    .map((line) => {
+      const event = parseJsonObject(line);
+      if (!event) {
+        return line;
+      }
+      for (const key of ["message", "messages", "assistantMessageEvent"]) {
+        if (Object.hasOwn(event, key)) {
+          event[key] = "[redacted]";
+        }
+      }
+      return JSON.stringify(event);
+    })
+    .join("\n");
 }
 
 function toTimeoutMs(maxRuntimeSec: number): number {

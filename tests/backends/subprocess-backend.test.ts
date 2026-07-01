@@ -83,7 +83,8 @@ describe("SubprocessExecutionBackend", () => {
 
     assert.equal(result.status, "failed");
     assert.equal(result.error?.code, "SUBPROCESS_INVALID_RESULT");
-    assert.match(String(result.error?.details?.stdout), /not json/);
+    assert.match(String(result.error?.details?.stdout), /"messages":"\[redacted\]"/);
+    assert.doesNotMatch(String(result.error?.details?.stdout), /not json/);
   });
 
   it("returns the RPC prompt rejection instead of waiting for timeout", async () => {
@@ -167,6 +168,10 @@ describe("SubprocessExecutionBackend", () => {
   it("builds the hardened Pi RPC command without inherited project resources or bash", () => {
     const args = buildPiRpcArgs(spawnInput("run_subprocess_args"));
     const noFilesystemArgs = buildPiRpcArgs(parseSpawnInput({ ...spawnInput("run_subprocess_no_tools"), policy: { filesystem: "none" } }));
+    const deniedToolArgs = buildPiRpcArgs(
+      parseSpawnInput({ ...spawnInput("run_subprocess_denied_tool"), agent: { ...agent, tools: ["read"], disallowedTools: ["read"] } }),
+    );
+    const modelArgs = buildPiRpcArgs(parseSpawnInput({ ...spawnInput("run_subprocess_model"), agent: { ...agent, model: "provider/model" } }));
 
     assert.deepEqual(args, [
       "--mode",
@@ -183,5 +188,7 @@ describe("SubprocessExecutionBackend", () => {
       "read,grep,find,ls",
     ]);
     assert.deepEqual(noFilesystemArgs.at(-1), "--no-tools");
+    assert.deepEqual(deniedToolArgs.at(-1), "--no-tools");
+    assert.deepEqual(modelArgs.slice(-4), ["--model", "provider/model", "--tools", "read,grep,find,ls"]);
   });
 });
