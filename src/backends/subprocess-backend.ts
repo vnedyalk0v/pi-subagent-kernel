@@ -13,6 +13,7 @@ import { parseRunEnvelope, type RunEnvelope } from "../contracts/run-envelope.ts
 
 const READ_ONLY_PI_TOOLS = Object.freeze(["read", "grep", "find", "ls"] as const);
 const MAX_CAPTURE_BYTES = 64 * 1024;
+const MAX_STDOUT_LINE_BYTES = 1024 * 1024;
 const MAX_TIMEOUT_MS = 2_147_483_647;
 const RPC_THINKING_LEVELS = new Set(["off", "minimal", "low", "medium", "high", "xhigh"]);
 const TERMINAL_STATUSES = new Set(["completed", "failed", "cancelled", "expired"]);
@@ -212,7 +213,7 @@ export class SubprocessExecutionBackend implements ExecutionBackend {
 
       const newlineIndex = rest.indexOf("\n");
       const fragment = newlineIndex === -1 ? rest : rest.slice(0, newlineIndex + 1);
-      if (run.stdoutBuffer.length + fragment.length > MAX_CAPTURE_BYTES) {
+      if (run.stdoutBuffer.length + fragment.length > MAX_STDOUT_LINE_BYTES) {
         run.stdoutBuffer = "";
         run.discardingStdoutLine = newlineIndex === -1;
         rest = newlineIndex === -1 ? "" : rest.slice(newlineIndex + 1);
@@ -438,6 +439,9 @@ export class SubprocessExecutionBackend implements ExecutionBackend {
 }
 
 function buildWindowsPiRpcArgs(input: SpawnInput): readonly string[] {
+  if (input.agent.model !== "inherit" && !/^[\w./:@+-]+$/u.test(input.agent.model)) {
+    throw new Error("agent.model contains characters unsafe for the default Windows Pi launcher.");
+  }
   return ["/d", "/s", "/c", "pi", ...buildPiRpcArgs(input)];
 }
 
@@ -555,6 +559,12 @@ function killChild(run: SubprocessRun, signal: NodeJS.Signals): void {
     if (process.platform !== "win32" && run.child.pid) {
       process.kill(-run.child.pid, signal);
       return;
+    }
+    if (process.platform === "win32" && run.child.pid) {
+      const args = ["/pid", String(run.child.pid), "/t", ...(signal === "SIGKILL" ? ["/f"] : [])];
+      const killer = spawn("taskkill", args, { stdio: "ignore", windowsHide: true });
+      killer.on("error", () => undefined);
+      killer.unref();
     }
     run.child.kill(signal);
   } catch (error) {

@@ -131,6 +131,16 @@ describe("SubprocessExecutionBackend", () => {
     assert.equal(result.summary, "result after large line");
   });
 
+  it("parses agent_end records larger than the failure capture cap", async () => {
+    const subprocess = backend("subprocess-large-agent-end.mjs");
+    await subprocess.spawn(spawnInput("run_subprocess_large_agent_end", 5));
+
+    const result = await subprocess.result("run_subprocess_large_agent_end");
+
+    assert.equal(result.status, "completed");
+    assert.equal(result.summary, "large agent_end parsed");
+  });
+
   it("expires and kills a child process after timeout", async () => {
     const subprocess = backend("subprocess-hang.mjs");
     await subprocess.spawn(spawnInput("run_subprocess_timeout", 1));
