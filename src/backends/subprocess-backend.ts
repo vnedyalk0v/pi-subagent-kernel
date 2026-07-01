@@ -409,7 +409,7 @@ export class SubprocessExecutionBackend implements ExecutionBackend {
 }
 
 export function buildPiRpcArgs(input: SpawnInput): readonly string[] {
-  const tools = input.policy.filesystem === "none"
+  const tools = input.policy.filesystem === "none" || input.agent.sandbox.filesystem === "none"
     ? []
     : READ_ONLY_PI_TOOLS.filter((tool) => input.agent.tools.includes(tool) && !input.agent.disallowedTools.includes(tool));
   const args = [
@@ -535,7 +535,7 @@ function redactRpcStdout(stdout: string): string {
       if (!event) {
         return line.trimStart().startsWith("{") ? "[redacted malformed JSONL]" : line;
       }
-      for (const key of ["message", "messages", "assistantMessageEvent", "partialResult", "result"]) {
+      for (const key of ["message", "messages", "assistantMessageEvent", "partialResult", "result", "toolResults"]) {
         if (Object.hasOwn(event, key)) {
           event[key] = "[redacted]";
         }
