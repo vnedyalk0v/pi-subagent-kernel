@@ -77,15 +77,15 @@ This documentation pack does **not** claim:
 
 ## Local implementation inspection
 
-Checked locally during issue #9 implementation:
+Latest local inspection during issue #23 subprocess research:
 
 | Package | Installed version | Notes |
 |---|---:|---|
-| `@earendil-works/pi-coding-agent` | `0.80.2` | Extension docs and typings verify the default factory signature, `pi.registerTool()`, strict TypeBox-style tool parameter schemas, and package `pi.extensions` manifest paths. |
-| `@earendil-works/pi-agent-core` | `0.80.2` | Provides tool result/update contracts used by Pi; no direct runtime import is needed by the issue #9 shell. |
-| `@earendil-works/pi-ai` | `0.80.2` | Provides Pi AI utilities and models; no direct runtime import is needed by the issue #9 shell. |
+| `@earendil-works/pi-coding-agent` | `0.80.3` | README/docs and installed `dist/` source verify `--mode json`, `--mode rpc`, `--no-session`, `--tools`, `--no-context-files`, `--no-approve`, `--offline`, strict LF JSONL framing, and RPC `abort`/`abort_bash` command shapes. Extension docs and typings continue to verify the default factory signature, `pi.registerTool()`, strict TypeBox-style tool parameter schemas, and package `pi.extensions` manifest paths. |
+| `@earendil-works/pi-agent-core` | `0.80.3` | Provides tool result/update contracts used by Pi; no direct runtime import is needed by the issue #9 shell. |
+| `@earendil-works/pi-ai` | `0.80.3` | Provides Pi AI utilities and models; no direct runtime import is needed by the issue #9 shell. |
 
-The issue #9 shell keeps registration dependency-free by using a structural subset of the Pi extension API and JSON-schema-compatible parameter objects. Before npm release or live tool execution testing, revisit whether to import Pi/TypeBox types as peer dependencies per `docs/packages.md`.
+The issue #9 shell keeps registration dependency-free by using a structural subset of the Pi extension API and JSON-schema-compatible parameter objects. Issue #23 subprocess findings are documented in `docs/06-runtime-backends.md`. Before npm release or live tool execution testing, revisit whether to import Pi/TypeBox types as peer dependencies per `docs/packages.md`.
 
 ## Source maintenance rule
 
