@@ -481,11 +481,12 @@ export class SubprocessExecutionBackend implements ExecutionBackend {
   }
 }
 
-function buildWindowsPiRpcArgs(input: SpawnInput, trustRoot = process.cwd()): readonly string[] {
+export function buildWindowsPiRpcArgs(input: SpawnInput, trustRoot = process.cwd()): readonly string[] {
   if (input.agent.model !== "inherit" && !/^[\w./:@+-]+$/u.test(input.agent.model)) {
     throw new Error("agent.model contains characters unsafe for the default Windows Pi launcher.");
   }
-  return ["/d", "/s", "/c", [resolveWindowsPiCommand(trustRoot), ...buildPiRpcArgs(input)].map(quoteWindowsCmdArg).join(" ")];
+  const command = [resolveWindowsPiCommand(trustRoot), ...buildPiRpcArgs(input)].map(quoteWindowsCmdArg).join(" ");
+  return ["/d", "/s", "/c", `"${command}"`];
 }
 
 function quoteWindowsCmdArg(value: string): string {
@@ -578,7 +579,7 @@ function buildPromptCommand(input: SpawnInput): string {
 
 function sanitizeChildError(error: NonNullable<RunEnvelope["error"]>): NonNullable<RunEnvelope["error"]> {
   return {
-    code: error.code,
+    code: "CHILD_SUBPROCESS_FAILED",
     message: "Child subprocess reported failure.",
     retryable: error.retryable,
     ...(error.details !== undefined ? { details: { redacted: true } } : {}),
@@ -610,7 +611,7 @@ function extractAssistantText(messages: unknown): string | undefined {
     return undefined;
   }
   const message = messages[messages.length - 1];
-  if (!isRecord(message)) {
+  if (!isRecord(message) || message.role !== "assistant") {
     return undefined;
   }
   if (typeof message.content === "string") {

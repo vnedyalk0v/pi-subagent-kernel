@@ -17,7 +17,7 @@ process.stdin.once("data", () => {
     cost: { estimatedUsd: null },
     confidence: 0,
     nextActions: ["SECRET_ACTION"],
-    error: { code: "CHILD_FAILED", message: "child failed SECRET_MESSAGE", retryable: false, details: { stderr: "SECRET_DETAILS" } },
+    error: { code: "SECRET_CODE", message: "child failed SECRET_MESSAGE", retryable: false, details: { stderr: "SECRET_DETAILS" } },
   };
   process.stdout.write(JSON.stringify({ type: "agent_end", messages: [{ role: "assistant", content: JSON.stringify(envelope) }] }) + "\n");
 });

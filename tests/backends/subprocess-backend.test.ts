@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { delimiter, join } from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { buildPiRpcArgs, parseSpawnInput, SubprocessExecutionBackend, type SpawnInput } from "../../src/index.ts";
+import { buildPiRpcArgs, buildWindowsPiRpcArgs, parseSpawnInput, SubprocessExecutionBackend, type SpawnInput } from "../../src/index.ts";
 
 const startedAt = "2026-06-26T10:00:00.000Z";
 const fixtureRoot = new URL("../fixtures/", import.meta.url);
@@ -109,6 +112,7 @@ describe("SubprocessExecutionBackend", () => {
 
     assert.equal(result.status, "failed");
     assert.equal(result.summary, "Child subprocess reported failure.");
+    assert.equal(result.error?.code, "CHILD_SUBPROCESS_FAILED");
     assert.equal(result.error?.message, "Child subprocess reported failure.");
     assert.deepEqual(result.error?.details, { redacted: true });
     assert.deepEqual(result.findings, []);
@@ -127,9 +131,19 @@ describe("SubprocessExecutionBackend", () => {
     const result = await subprocess.result("run_subprocess_failed_nonzero");
 
     assert.equal(result.status, "failed");
-    assert.equal(result.error?.code, "CHILD_FAILED");
+    assert.equal(result.error?.code, "CHILD_SUBPROCESS_FAILED");
     assert.equal(result.error?.message, "Child subprocess reported failure.");
     assert.equal(result.error?.retryable, true);
+  });
+
+  it("rejects non-assistant terminal RPC messages as final results", async () => {
+    const subprocess = backend("subprocess-rpc-terminal-tool-result.mjs");
+    await subprocess.spawn(spawnInput("run_subprocess_terminal_tool_result", 5));
+
+    const result = await subprocess.result("run_subprocess_terminal_tool_result");
+
+    assert.equal(result.status, "failed");
+    assert.equal(result.error?.code, "SUBPROCESS_INVALID_RESULT");
   });
 
   it("waits for thinking configuration before prompting", async () => {
@@ -235,6 +249,30 @@ describe("SubprocessExecutionBackend", () => {
   it("rejects runtime limits larger than Node timers support", async () => {
     const subprocess = backend("subprocess-rpc-success.mjs");
     await assert.rejects(() => subprocess.spawn(spawnInput("run_subprocess_huge_timeout", 3_000_000)), /maxRuntimeSec/);
+  });
+
+  it("wraps the full Windows cmd payload for spaced Pi shim paths", () => {
+    const oldPath = process.env.PATH;
+    const oldPathext = process.env.PATHEXT;
+    const root = mkdtempSync(join(tmpdir(), "pi-kernel "));
+    const bin = join(root, "trusted bin");
+    const trustRoot = join(root, "workspace");
+    mkdirSync(bin);
+    writeFileSync(join(bin, "pi.cmd"), "");
+    process.env.PATH = oldPath ? `${bin}${delimiter}${oldPath}` : bin;
+    process.env.PATHEXT = ".CMD";
+
+    try {
+      const args = buildWindowsPiRpcArgs(spawnInput("run_subprocess_windows_args"), trustRoot);
+
+      assert.deepEqual(args.slice(0, 3), ["/d", "/s", "/c"]);
+      assert.match(String(args[3]), /^"".*pi\.cmd" "/);
+      assert.equal(String(args[3]).endsWith("\""), true);
+    } finally {
+      process.env.PATH = oldPath;
+      process.env.PATHEXT = oldPathext;
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it("builds the hardened Pi RPC command without inherited project resources or bash", () => {
