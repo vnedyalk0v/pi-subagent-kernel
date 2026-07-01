@@ -14,6 +14,8 @@ import { parseRunEnvelope, type RunEnvelope } from "../contracts/run-envelope.ts
 const READ_ONLY_PI_TOOLS = Object.freeze(["read", "grep", "find", "ls"] as const);
 const MAX_CAPTURE_BYTES = 64 * 1024;
 const MAX_TIMEOUT_MS = 2_147_483_647;
+const RPC_THINKING_LEVELS = new Set(["off", "minimal", "low", "medium", "high", "xhigh"]);
+const TERMINAL_STATUSES = new Set(["completed", "failed", "cancelled", "expired"]);
 
 export interface SubprocessExecutionBackendOptions {
   command?: string;
@@ -79,6 +81,7 @@ export class SubprocessExecutionBackend implements ExecutionBackend {
       throw new Error("context.mode fork is not supported by the subprocess alpha backend.");
     }
 
+    const rpcInput = buildRpcInput(normalized);
     const startedAt = this.#now().toISOString();
     const status = parseRunStatus({
       id: normalized.runId,
@@ -120,7 +123,7 @@ export class SubprocessExecutionBackend implements ExecutionBackend {
     this.#runs.set(normalized.runId, run);
     this.#attach(run);
 
-    child.stdin.write(buildPromptCommand(normalized), (error) => {
+    child.stdin.write(rpcInput, (error) => {
       if (error && !run.finished && !run.timedOut && !run.cancelReason) {
         this.#finish(run, "error", { error });
         this.#terminate(run, false);
@@ -231,8 +234,8 @@ export class SubprocessExecutionBackend implements ExecutionBackend {
     if (run.timedOut || run.cancelReason) {
       return;
     }
-    if (event?.type === "response" && event.command === "prompt" && event.success === false) {
-      run.rpcError = typeof event.error === "string" ? event.error : "RPC prompt command was rejected.";
+    if (event?.type === "response" && (event.command === "prompt" || event.command === "set_thinking_level") && event.success === false) {
+      run.rpcError = typeof event.error === "string" ? event.error : `RPC ${String(event.command)} command was rejected.`;
       this.#finish(run, "rpc_rejected");
       this.#terminate(run, false);
       return;
@@ -328,6 +331,9 @@ export class SubprocessExecutionBackend implements ExecutionBackend {
     }
     try {
       const candidate = parseRunEnvelope(JSON.parse(text));
+      if (!TERMINAL_STATUSES.has(candidate.status)) {
+        return undefined;
+      }
       const { parentRunId: _parentRunId, ...trustedCandidate } = candidate;
       return parseRunEnvelope({
         ...trustedCandidate,
@@ -338,7 +344,7 @@ export class SubprocessExecutionBackend implements ExecutionBackend {
         contextMode: run.input.context.mode,
         startedAt: run.startedAt,
         endedAt,
-        status: candidate.status === "failed" ? "failed" : "completed",
+        status: candidate.status,
       });
     } catch {
       return undefined;
@@ -428,8 +434,17 @@ export function buildPiRpcArgs(input: SpawnInput): readonly string[] {
   return tools.length > 0 ? [...args, ...modelArgs, "--tools", tools.join(",")] : [...args, ...modelArgs, "--no-tools"];
 }
 
-function buildPromptCommand(input: SpawnInput): string {
-  return `${JSON.stringify({ id: `${input.runId}:prompt`, type: "prompt", message: buildChildPrompt(input) })}\n`;
+function buildRpcInput(input: SpawnInput): string {
+  const commands = [];
+  const thinking = input.agent.thinking ?? input.agent.reasoning;
+  if (thinking) {
+    if (!RPC_THINKING_LEVELS.has(thinking)) {
+      throw new Error(`agent.thinking "${thinking}" is not supported by Pi RPC subprocess mode.`);
+    }
+    commands.push({ id: `${input.runId}:thinking`, type: "set_thinking_level", level: thinking });
+  }
+  commands.push({ id: `${input.runId}:prompt`, type: "prompt", message: buildChildPrompt(input) });
+  return `${commands.map((command) => JSON.stringify(command)).join("\n")}\n`;
 }
 
 function buildChildPrompt(input: SpawnInput): string {
@@ -442,6 +457,11 @@ function buildChildPrompt(input: SpawnInput): string {
     `Context mode: ${input.context.mode}`,
     input.context.summary ? `Parent summary:\n${input.context.summary}` : "Parent summary: <none>",
     input.context.files.length > 0 ? `File hints:\n${input.context.files.join("\n")}` : "File hints: <none>",
+    `Output mode: ${input.output.mode}`,
+    input.output.schema === undefined
+      ? "Output schema: <none>"
+      : `Output schema:\n${typeof input.output.schema === "string" ? input.output.schema : JSON.stringify(input.output.schema)}`,
+    input.output.artifactPath ? `Output artifact path: ${input.output.artifactPath}` : "Output artifact path: <none>",
     `Agent instructions:\n${input.agent.instructions}`,
     `Task:\n${input.task}`,
   ].join("\n\n");
@@ -517,7 +537,7 @@ function redactRpcStdout(stdout: string): string {
       if (!event) {
         return line.trimStart().startsWith("{") ? "[redacted malformed JSONL]" : line;
       }
-      for (const key of ["message", "messages", "assistantMessageEvent"]) {
+      for (const key of ["message", "messages", "assistantMessageEvent", "partialResult", "result"]) {
         if (Object.hasOwn(event, key)) {
           event[key] = "[redacted]";
         }
