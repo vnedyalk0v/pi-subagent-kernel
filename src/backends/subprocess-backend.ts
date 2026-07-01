@@ -186,9 +186,6 @@ export class SubprocessExecutionBackend implements ExecutionBackend {
       run.exited = true;
       run.exitCode = code;
       run.signal = signal;
-      if (run.hardKill) {
-        clearTimeout(run.hardKill);
-      }
       if (!run.finished) {
         this.#finish(run, run.timedOut ? "timeout" : run.cancelReason ? "cancelled" : "exit");
       }
@@ -254,7 +251,7 @@ export class SubprocessExecutionBackend implements ExecutionBackend {
 
   #timeout(runId: string): void {
     const run = this.#runs.get(runId);
-    if (!run || run.finished) {
+    if (!run || run.finished || run.cancelReason) {
       return;
     }
     run.timedOut = true;
@@ -285,9 +282,6 @@ export class SubprocessExecutionBackend implements ExecutionBackend {
 
     run.finished = true;
     clearTimeout(run.timeout);
-    if (run.hardKill) {
-      clearTimeout(run.hardKill);
-    }
     const endedAt = this.#now().toISOString();
     const envelope = this.#envelope(run, reason, endedAt, options.error);
     run.status = runStatusFromEnvelope(envelope);
@@ -471,23 +465,26 @@ function extractAssistantText(messages: unknown): string | undefined {
   if (!Array.isArray(messages)) {
     return undefined;
   }
+  let message: unknown;
   for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const message = messages[index];
-    if (!isRecord(message) || message.role !== "assistant") {
-      continue;
+    const item = messages[index];
+    if (isRecord(item) && item.role === "assistant") {
+      message = item;
+      break;
     }
-    if (typeof message.content === "string") {
-      return message.content.trim();
-    }
-    if (Array.isArray(message.content)) {
-      const text = message.content
-        .flatMap((item) => (isRecord(item) && item.type === "text" && typeof item.text === "string" ? [item.text] : []))
-        .join("")
-        .trim();
-      if (text) {
-        return text;
-      }
-    }
+  }
+  if (!isRecord(message)) {
+    return undefined;
+  }
+  if (typeof message.content === "string") {
+    return message.content.trim() || undefined;
+  }
+  if (Array.isArray(message.content)) {
+    const text = message.content
+      .flatMap((item) => (isRecord(item) && item.type === "text" && typeof item.text === "string" ? [item.text] : []))
+      .join("")
+      .trim();
+    return text || undefined;
   }
   return undefined;
 }
@@ -523,7 +520,8 @@ function killChild(run: SubprocessRun, signal: NodeJS.Signals): void {
     }
     run.child.kill(signal);
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ESRCH") {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code !== "ESRCH" && code !== "EPERM") {
       throw error;
     }
   }
