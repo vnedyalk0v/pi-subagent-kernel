@@ -71,7 +71,7 @@ describe("SubprocessExecutionBackend", () => {
     assert.equal(result.status, "failed");
     assert.equal(result.error?.code, "SUBPROCESS_EXIT_NONZERO");
     assert.equal(result.error?.details?.exitCode, 2);
-    assert.match(String(result.error?.details?.stdout), /partial stdout/);
+    assert.match(String(result.error?.details?.stdout), /\[redacted\]/);
     assert.equal(result.error?.details?.stderr, "[redacted]");
   });
 
@@ -97,6 +97,16 @@ describe("SubprocessExecutionBackend", () => {
     assert.equal(result.status, "failed");
     assert.equal(result.error?.code, "SUBPROCESS_RPC_PROMPT_REJECTED");
     assert.match(result.summary, /bad config/);
+  });
+
+  it("redacts child-provided failure details", async () => {
+    const subprocess = backend("subprocess-rpc-failed-details.mjs");
+    await subprocess.spawn(spawnInput("run_subprocess_failed_details", 5));
+
+    const result = await subprocess.result("run_subprocess_failed_details");
+
+    assert.equal(result.status, "failed");
+    assert.deepEqual(result.error?.details, { redacted: true });
   });
 
   it("waits for thinking configuration before prompting", async () => {

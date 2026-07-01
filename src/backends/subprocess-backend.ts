@@ -70,7 +70,7 @@ export class SubprocessExecutionBackend implements ExecutionBackend {
   readonly #runs = new Map<string, SubprocessRun>();
 
   constructor(options: SubprocessExecutionBackendOptions = {}) {
-    this.#command = options.command ?? (process.platform === "win32" ? "cmd.exe" : resolvePiCommand(["pi"]));
+    this.#command = options.command ?? (process.platform === "win32" ? resolveSystem32Command("cmd.exe") : resolvePiCommand(["pi"]));
     this.#args = options.args ?? (process.platform === "win32" && options.command === undefined ? buildWindowsPiRpcArgs : buildPiRpcArgs);
     this.#cwd = options.cwd;
     this.#env = options.env;
@@ -194,10 +194,18 @@ export class SubprocessExecutionBackend implements ExecutionBackend {
       }
     });
     run.child.on("error", (error) => this.#finish(run, "error", { error }));
-    run.child.on("close", (code, signal) => {
+    run.child.on("exit", (code, signal) => {
       run.exited = true;
       run.exitCode = code;
       run.signal = signal;
+      this.#terminate(run, false);
+    });
+    run.child.on("close", (code, signal) => {
+      if (!run.exited) {
+        run.exited = true;
+        run.exitCode = code;
+        run.signal = signal;
+      }
       if (!run.finished) {
         this.#finish(run, run.timedOut ? "timeout" : run.cancelReason ? "cancelled" : "exit");
         this.#terminate(run, false);
@@ -364,9 +372,10 @@ export class SubprocessExecutionBackend implements ExecutionBackend {
       if (!TERMINAL_STATUSES.has(candidate.status)) {
         return undefined;
       }
-      const { parentRunId: _parentRunId, ...trustedCandidate } = candidate;
+      const { parentRunId: _parentRunId, error: childError, ...trustedCandidate } = candidate;
       return parseRunEnvelope({
         ...trustedCandidate,
+        ...(childError !== undefined ? { error: sanitizeChildError(childError) } : {}),
         id: run.input.runId,
         ...(run.input.context.parentRunId !== undefined ? { parentRunId: run.input.context.parentRunId } : {}),
         agent: run.input.agent.name,
@@ -456,6 +465,18 @@ function resolveWindowsPiCommand(): string {
   return resolvePiCommand(extensions.map((extension) => `pi${extension.toLowerCase()}`));
 }
 
+function resolveSystem32Command(name: string): string {
+  const root = process.env.SystemRoot ?? process.env.windir;
+  if (!root || !isAbsolute(root)) {
+    throw new Error(`Unable to resolve Windows system command ${name}.`);
+  }
+  const command = join(root, "System32", name);
+  if (!existsSync(command)) {
+    throw new Error(`Unable to resolve Windows system command ${name}.`);
+  }
+  return command;
+}
+
 function resolvePiCommand(names: readonly string[]): string {
   for (const rawDir of (process.env.PATH ?? "").split(delimiter)) {
     const dir = rawDir.replace(/^"|"$/g, "");
@@ -516,6 +537,15 @@ function buildThinkingCommand(input: SpawnInput): string | undefined {
 
 function buildPromptCommand(input: SpawnInput): string {
   return `${JSON.stringify({ id: `${input.runId}:prompt`, type: "prompt", message: buildChildPrompt(input) })}\n`;
+}
+
+function sanitizeChildError(error: NonNullable<RunEnvelope["error"]>): NonNullable<RunEnvelope["error"]> {
+  return {
+    code: error.code,
+    message: error.message,
+    retryable: error.retryable,
+    ...(error.details !== undefined ? { details: { redacted: true } } : {}),
+  };
 }
 
 function buildChildPrompt(input: SpawnInput): string {
@@ -603,7 +633,7 @@ function killChild(run: SubprocessRun, signal: NodeJS.Signals): void {
     }
     if (process.platform === "win32" && run.child.pid) {
       const args = ["/pid", String(run.child.pid), "/t", ...(signal === "SIGKILL" ? ["/f"] : [])];
-      const killer = spawn("taskkill", args, { stdio: "ignore", windowsHide: true });
+      const killer = spawn(resolveSystem32Command("taskkill.exe"), args, { stdio: "ignore", windowsHide: true });
       killer.on("error", () => undefined);
       killer.unref();
     }
@@ -622,7 +652,7 @@ function redactRpcStdout(stdout: string): string {
     .map((line) => {
       const event = parseJsonObject(line);
       if (!event) {
-        return line.trimStart().startsWith("{") ? "[redacted malformed JSONL]" : line;
+        return line.trimStart().startsWith("{") ? "[redacted malformed JSONL]" : line.trim() ? "[redacted]" : line;
       }
       for (const key of ["message", "messages", "assistantMessageEvent", "partialResult", "result", "toolResults"]) {
         if (Object.hasOwn(event, key)) {
