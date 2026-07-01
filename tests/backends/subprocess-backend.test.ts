@@ -96,7 +96,7 @@ describe("SubprocessExecutionBackend", () => {
 
     assert.equal(result.status, "failed");
     assert.equal(result.error?.code, "SUBPROCESS_RPC_PROMPT_REJECTED");
-    assert.match(result.summary, /bad config/);
+    assert.equal(result.summary, "RPC prompt command was rejected.");
   });
 
   it("redacts child-provided failure details", async () => {

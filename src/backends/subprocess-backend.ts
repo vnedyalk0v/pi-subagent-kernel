@@ -70,10 +70,13 @@ export class SubprocessExecutionBackend implements ExecutionBackend {
   readonly #runs = new Map<string, SubprocessRun>();
 
   constructor(options: SubprocessExecutionBackendOptions = {}) {
-    this.#command = options.command ?? (process.platform === "win32" ? resolveSystem32Command("cmd.exe") : resolvePiCommand(["pi"]));
-    this.#args = options.args ?? (process.platform === "win32" && options.command === undefined ? buildWindowsPiRpcArgs : buildPiRpcArgs);
+    const trustRoot = options.cwd ? resolve(options.cwd) : process.cwd();
+    this.#command = options.command ?? (process.platform === "win32" ? resolveSystem32Command("cmd.exe") : resolvePiCommand(["pi"], trustRoot));
+    this.#args = options.args ?? (process.platform === "win32" && options.command === undefined
+      ? (input: SpawnInput) => buildWindowsPiRpcArgs(input, trustRoot)
+      : buildPiRpcArgs);
     this.#cwd = options.cwd;
-    this.#env = options.env;
+    this.#env = options.env ?? minimalEnv(trustRoot);
     this.#now = options.now ?? (() => new Date());
     this.#killGraceMs = options.killGraceMs ?? 500;
   }
@@ -111,7 +114,7 @@ export class SubprocessExecutionBackend implements ExecutionBackend {
     const child = spawn(this.#command, this.#resolveArgs(normalized), {
       cwd: this.#cwd,
       detached: process.platform !== "win32",
-      env: this.#env ?? minimalEnv(),
+      env: this.#env,
       stdio: "pipe",
     });
     const timeout = setTimeout(() => this.#timeout(normalized.runId), timeoutMs);
@@ -257,7 +260,7 @@ export class SubprocessExecutionBackend implements ExecutionBackend {
     }
     if (event?.type === "response" && (event.command === "prompt" || event.command === "set_thinking_level")) {
       if (event.success === false) {
-        run.rpcError = typeof event.error === "string" ? event.error : `RPC ${String(event.command)} command was rejected.`;
+        run.rpcError = `RPC ${String(event.command)} command was rejected.`;
         this.#finish(run, "rpc_rejected");
         this.#terminate(run, false);
         return;
@@ -374,6 +377,7 @@ export class SubprocessExecutionBackend implements ExecutionBackend {
         return undefined;
       }
       const { parentRunId: _parentRunId, error: childError, ...trustedCandidate } = candidate;
+      const childFailed = candidate.status === "failed" || candidate.status === "expired";
       return parseRunEnvelope({
         ...trustedCandidate,
         ...(childError !== undefined ? { error: sanitizeChildError(childError) } : {}),
@@ -382,6 +386,7 @@ export class SubprocessExecutionBackend implements ExecutionBackend {
         agent: run.input.agent.name,
         runtime: this.id,
         contextMode: run.input.context.mode,
+        summary: childFailed ? "Child subprocess reported failure." : candidate.summary,
         startedAt: run.startedAt,
         endedAt,
         status: candidate.status,
@@ -454,20 +459,20 @@ export class SubprocessExecutionBackend implements ExecutionBackend {
   }
 }
 
-function buildWindowsPiRpcArgs(input: SpawnInput): readonly string[] {
+function buildWindowsPiRpcArgs(input: SpawnInput, trustRoot = process.cwd()): readonly string[] {
   if (input.agent.model !== "inherit" && !/^[\w./:@+-]+$/u.test(input.agent.model)) {
     throw new Error("agent.model contains characters unsafe for the default Windows Pi launcher.");
   }
-  return ["/d", "/s", "/c", [resolveWindowsPiCommand(), ...buildPiRpcArgs(input)].map(quoteWindowsCmdArg).join(" ")];
+  return ["/d", "/s", "/c", [resolveWindowsPiCommand(trustRoot), ...buildPiRpcArgs(input)].map(quoteWindowsCmdArg).join(" ")];
 }
 
 function quoteWindowsCmdArg(value: string): string {
   return `"${value.replace(/"/g, '""')}"`;
 }
 
-function resolveWindowsPiCommand(): string {
+function resolveWindowsPiCommand(trustRoot: string): string {
   const extensions = (process.env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD").split(";").filter(Boolean);
-  return resolvePiCommand(extensions.map((extension) => `pi${extension.toLowerCase()}`));
+  return resolvePiCommand(extensions.map((extension) => `pi${extension.toLowerCase()}`), trustRoot);
 }
 
 function resolveSystem32Command(name: string): string {
@@ -482,10 +487,10 @@ function resolveSystem32Command(name: string): string {
   return command;
 }
 
-function resolvePiCommand(names: readonly string[]): string {
+function resolvePiCommand(names: readonly string[], trustRoot = process.cwd()): string {
   for (const rawDir of (process.env.PATH ?? "").split(delimiter)) {
     const dir = rawDir.replace(/^"|"$/g, "");
-    if (!isTrustedPathDir(dir)) {
+    if (!isTrustedPathDir(dir, trustRoot)) {
       continue;
     }
     for (const name of names) {
@@ -498,13 +503,13 @@ function resolvePiCommand(names: readonly string[]): string {
   throw new Error("Unable to resolve a trusted Pi command from PATH for the default subprocess backend.");
 }
 
-function isTrustedPathDir(dir: string): boolean {
+function isTrustedPathDir(dir: string, trustRoot = process.cwd()): boolean {
   const cleanDir = dir.replace(/^"|"$/g, "");
   if (!cleanDir || !isAbsolute(cleanDir)) {
     return false;
   }
   const resolvedDir = normalizeTrustPath(resolve(cleanDir));
-  const cwd = normalizeTrustPath(process.cwd());
+  const cwd = normalizeTrustPath(resolve(trustRoot));
   return resolvedDir !== cwd && !resolvedDir.startsWith(`${cwd}${sep}`);
 }
 
@@ -582,14 +587,7 @@ function extractAssistantText(messages: unknown): string | undefined {
   if (!Array.isArray(messages)) {
     return undefined;
   }
-  let message: unknown;
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const item = messages[index];
-    if (isRecord(item) && item.role === "assistant") {
-      message = item;
-      break;
-    }
-  }
+  const message = messages[messages.length - 1];
   if (!isRecord(message)) {
     return undefined;
   }
@@ -625,17 +623,17 @@ function appendParseCapture(current: string, chunk: string): string {
   return next.length <= MAX_STDOUT_LINE_BYTES ? next : next.slice(0, MAX_STDOUT_LINE_BYTES);
 }
 
-function trustedPathEnv(): NodeJS.ProcessEnv {
+function trustedPathEnv(trustRoot = process.cwd()): NodeJS.ProcessEnv {
   const path = (process.env.PATH ?? "")
     .split(delimiter)
-    .filter(isTrustedPathDir)
+    .filter((entry) => isTrustedPathDir(entry, trustRoot))
     .join(delimiter);
   return path ? { PATH: path } : {};
 }
 
-function minimalEnv(): NodeJS.ProcessEnv {
+function minimalEnv(trustRoot = process.cwd()): NodeJS.ProcessEnv {
   return {
-    ...trustedPathEnv(),
+    ...trustedPathEnv(trustRoot),
     ...(process.env.HOME ? { HOME: process.env.HOME } : {}),
     ...(process.env.TMPDIR ? { TMPDIR: process.env.TMPDIR } : {}),
     ...(process.env.PI_CODING_AGENT_DIR ? { PI_CODING_AGENT_DIR: process.env.PI_CODING_AGENT_DIR } : {}),
@@ -672,7 +670,7 @@ function redactRpcStdout(stdout: string): string {
       if (!event) {
         return line.trimStart().startsWith("{") ? "[redacted malformed JSONL]" : line.trim() ? "[redacted]" : line;
       }
-      for (const key of ["message", "messages", "assistantMessageEvent", "partialResult", "result", "toolResults"]) {
+      for (const key of ["message", "messages", "assistantMessageEvent", "partialResult", "result", "toolResults", "error", "args"]) {
         if (Object.hasOwn(event, key)) {
           event[key] = "[redacted]";
         }
