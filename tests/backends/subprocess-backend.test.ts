@@ -25,7 +25,7 @@ function spawnInput(runId = "run_subprocess_1", maxRuntimeSec = 5): SpawnInput {
     runId,
     agent,
     task: "Inspect README.md",
-    context: { mode: "summary", parentRunId: null, summary: "Only this summary is inherited.", files: ["README.md"] },
+    context: { mode: "summary", summary: "Only this summary is inherited.", files: ["README.md"] },
     policy: {},
     limits: { maxRuntimeSec },
     output: { mode: "json" },
@@ -57,6 +57,7 @@ describe("SubprocessExecutionBackend", () => {
     assert.equal(result.startedAt, startedAt);
     assert.equal(result.endedAt, startedAt);
     assert.equal(result.summary, "fixture completed");
+    assert.equal(result.parentRunId, undefined);
     assert.deepEqual(result.filesRead, ["README.md"]);
     assert.deepEqual(result.filesChanged, []);
   });
@@ -85,11 +86,43 @@ describe("SubprocessExecutionBackend", () => {
     assert.match(String(result.error?.details?.stdout), /not json/);
   });
 
+  it("returns the RPC prompt rejection instead of waiting for timeout", async () => {
+    const subprocess = backend("subprocess-rpc-reject.mjs");
+    await subprocess.spawn(spawnInput("run_subprocess_reject", 5));
+
+    const result = await subprocess.result("run_subprocess_reject");
+
+    assert.equal(result.status, "failed");
+    assert.equal(result.error?.code, "SUBPROCESS_RPC_PROMPT_REJECTED");
+    assert.match(result.summary, /bad config/);
+  });
+
+  it("bounds stdout capture and the pending parse buffer", async () => {
+    const subprocess = backend("subprocess-large-stdout.mjs");
+    await subprocess.spawn(spawnInput("run_subprocess_large_stdout", 5));
+
+    const result = await subprocess.result("run_subprocess_large_stdout");
+
+    assert.equal(result.status, "failed");
+    assert.equal(result.error?.code, "SUBPROCESS_INVALID_RESULT");
+    assert.ok(String(result.error?.details?.stdout).length < 66 * 1024);
+  });
+
   it("expires and kills a child process after timeout", async () => {
     const subprocess = backend("subprocess-hang.mjs");
     await subprocess.spawn(spawnInput("run_subprocess_timeout", 1));
 
     const result = await subprocess.result("run_subprocess_timeout");
+
+    assert.equal(result.status, "expired");
+    assert.equal(result.error?.code, "SUBPROCESS_TIMEOUT");
+  });
+
+  it("keeps timeout status when a child emits a late agent_end", async () => {
+    const subprocess = backend("subprocess-rpc-late-after-sigterm.mjs");
+    await subprocess.spawn(spawnInput("run_subprocess_late_timeout", 1));
+
+    const result = await subprocess.result("run_subprocess_late_timeout");
 
     assert.equal(result.status, "expired");
     assert.equal(result.error?.code, "SUBPROCESS_TIMEOUT");

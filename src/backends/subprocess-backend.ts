@@ -23,7 +23,7 @@ export interface SubprocessExecutionBackendOptions {
   killGraceMs?: number;
 }
 
-type FinishReason = "agent_end" | "exit" | "error" | "cancelled" | "timeout";
+type FinishReason = "agent_end" | "exit" | "error" | "cancelled" | "timeout" | "rpc_rejected";
 
 interface SubprocessRun {
   input: SpawnInput;
@@ -38,6 +38,7 @@ interface SubprocessRun {
   signal?: NodeJS.Signals | null;
   timedOut: boolean;
   cancelReason?: string;
+  rpcError?: string;
   finished: boolean;
   exited: boolean;
   timeout: NodeJS.Timeout;
@@ -110,7 +111,7 @@ export class SubprocessExecutionBackend implements ExecutionBackend {
     this.#runs.set(normalized.runId, run);
     this.#attach(run);
 
-    child.stdin.end(buildPromptCommand(normalized));
+    child.stdin.write(buildPromptCommand(normalized));
     return status;
   }
 
@@ -143,14 +144,14 @@ export class SubprocessExecutionBackend implements ExecutionBackend {
     run.child.stdout.on("data", (chunk: Buffer) => {
       const text = decoder.write(chunk);
       run.stdout = appendCapture(run.stdout, text);
-      run.stdoutBuffer += text;
+      run.stdoutBuffer = appendCapture(run.stdoutBuffer, text);
       this.#drainStdout(run);
     });
     run.child.stdout.on("end", () => {
       const text = decoder.end();
       if (text) {
         run.stdout = appendCapture(run.stdout, text);
-        run.stdoutBuffer += text;
+        run.stdoutBuffer = appendCapture(run.stdoutBuffer, text);
         this.#drainStdout(run);
       }
       this.#handleStdoutLine(run, run.stdoutBuffer);
@@ -164,6 +165,9 @@ export class SubprocessExecutionBackend implements ExecutionBackend {
       run.exited = true;
       run.exitCode = code;
       run.signal = signal;
+      if (run.hardKill) {
+        clearTimeout(run.hardKill);
+      }
       if (!run.finished) {
         this.#finish(run, run.timedOut ? "timeout" : run.cancelReason ? "cancelled" : "exit");
       }
@@ -187,7 +191,13 @@ export class SubprocessExecutionBackend implements ExecutionBackend {
       return;
     }
     const event = parseJsonObject(line);
-    if (event?.type !== "agent_end") {
+    if (event?.type === "response" && event.command === "prompt" && event.success === false) {
+      run.rpcError = typeof event.error === "string" ? event.error : "RPC prompt command was rejected.";
+      this.#finish(run, "rpc_rejected");
+      this.#terminate(run, false);
+      return;
+    }
+    if (event?.type !== "agent_end" || run.timedOut || run.cancelReason) {
       return;
     }
 
@@ -211,6 +221,9 @@ export class SubprocessExecutionBackend implements ExecutionBackend {
   #terminate(run: SubprocessRun, writeAbort = true): void {
     if (writeAbort && run.child.stdin.writable) {
       run.child.stdin.write(`${JSON.stringify({ id: `${run.input.runId}:abort`, type: "abort" })}\n`);
+    }
+    if (!run.child.stdin.destroyed && !run.child.stdin.writableEnded) {
+      run.child.stdin.end();
     }
     if (!run.exited) {
       run.child.kill("SIGTERM");
@@ -249,6 +262,9 @@ export class SubprocessExecutionBackend implements ExecutionBackend {
     if (reason === "timeout") {
       return this.#failed(run, endedAt, "SUBPROCESS_TIMEOUT", "Subprocess exceeded maxRuntimeSec and was terminated.", true, "expired");
     }
+    if (reason === "rpc_rejected") {
+      return this.#failed(run, endedAt, "SUBPROCESS_RPC_PROMPT_REJECTED", run.rpcError ?? "RPC prompt command was rejected.", false);
+    }
     if (reason === "cancelled") {
       return this.#base(run, endedAt, {
         status: "cancelled",
@@ -272,8 +288,9 @@ export class SubprocessExecutionBackend implements ExecutionBackend {
     }
     try {
       const candidate = parseRunEnvelope(JSON.parse(text));
+      const { parentRunId: _parentRunId, ...trustedCandidate } = candidate;
       return parseRunEnvelope({
-        ...candidate,
+        ...trustedCandidate,
         id: run.input.runId,
         ...(run.input.context.parentRunId !== undefined ? { parentRunId: run.input.context.parentRunId } : {}),
         agent: run.input.agent.name,
