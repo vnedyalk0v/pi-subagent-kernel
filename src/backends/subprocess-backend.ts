@@ -334,7 +334,7 @@ export class SubprocessExecutionBackend implements ExecutionBackend {
   #envelope(run: SubprocessRun, reason: FinishReason, endedAt: string, spawnError?: Error): RunEnvelope {
     if (reason === "agent_end" || reason === "exit") {
       const parsed = this.#parseChildResult(run, endedAt);
-      if (parsed) {
+      if (parsed && !(reason === "exit" && run.exitCode !== 0 && parsed.status !== "failed" && parsed.status !== "expired")) {
         return parsed;
       }
       if (reason === "agent_end" || run.exitCode === 0) {
@@ -458,7 +458,11 @@ function buildWindowsPiRpcArgs(input: SpawnInput): readonly string[] {
   if (input.agent.model !== "inherit" && !/^[\w./:@+-]+$/u.test(input.agent.model)) {
     throw new Error("agent.model contains characters unsafe for the default Windows Pi launcher.");
   }
-  return ["/d", "/s", "/c", resolveWindowsPiCommand(), ...buildPiRpcArgs(input)];
+  return ["/d", "/s", "/c", [resolveWindowsPiCommand(), ...buildPiRpcArgs(input)].map(quoteWindowsCmdArg).join(" ")];
+}
+
+function quoteWindowsCmdArg(value: string): string {
+  return `"${value.replace(/"/g, '""')}"`;
 }
 
 function resolveWindowsPiCommand(): string {
@@ -495,12 +499,17 @@ function resolvePiCommand(names: readonly string[]): string {
 }
 
 function isTrustedPathDir(dir: string): boolean {
-  if (!dir || !isAbsolute(dir)) {
+  const cleanDir = dir.replace(/^"|"$/g, "");
+  if (!cleanDir || !isAbsolute(cleanDir)) {
     return false;
   }
-  const resolvedDir = resolve(dir);
-  const cwd = process.cwd();
+  const resolvedDir = normalizeTrustPath(resolve(cleanDir));
+  const cwd = normalizeTrustPath(process.cwd());
   return resolvedDir !== cwd && !resolvedDir.startsWith(`${cwd}${sep}`);
+}
+
+function normalizeTrustPath(path: string): string {
+  return process.platform === "win32" ? path.toLowerCase() : path;
 }
 
 export function buildPiRpcArgs(input: SpawnInput): readonly string[] {
@@ -616,9 +625,17 @@ function appendParseCapture(current: string, chunk: string): string {
   return next.length <= MAX_STDOUT_LINE_BYTES ? next : next.slice(0, MAX_STDOUT_LINE_BYTES);
 }
 
+function trustedPathEnv(): NodeJS.ProcessEnv {
+  const path = (process.env.PATH ?? "")
+    .split(delimiter)
+    .filter(isTrustedPathDir)
+    .join(delimiter);
+  return path ? { PATH: path } : {};
+}
+
 function minimalEnv(): NodeJS.ProcessEnv {
   return {
-    ...(process.env.PATH ? { PATH: process.env.PATH } : {}),
+    ...trustedPathEnv(),
     ...(process.env.HOME ? { HOME: process.env.HOME } : {}),
     ...(process.env.TMPDIR ? { TMPDIR: process.env.TMPDIR } : {}),
     ...(process.env.PI_CODING_AGENT_DIR ? { PI_CODING_AGENT_DIR: process.env.PI_CODING_AGENT_DIR } : {}),
