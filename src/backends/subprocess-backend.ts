@@ -16,6 +16,7 @@ const MAX_CAPTURE_BYTES = 64 * 1024;
 const MAX_TIMEOUT_MS = 2_147_483_647;
 const RPC_THINKING_LEVELS = new Set(["off", "minimal", "low", "medium", "high", "xhigh"]);
 const TERMINAL_STATUSES = new Set(["completed", "failed", "cancelled", "expired"]);
+const CHILD_SYSTEM_PROMPT = "You are an isolated Pi SubAgent Kernel child. Follow the user prompt and return only the requested JSON RunEnvelope.";
 
 export interface SubprocessExecutionBackendOptions {
   command?: string;
@@ -188,6 +189,7 @@ export class SubprocessExecutionBackend implements ExecutionBackend {
       run.signal = signal;
       if (!run.finished) {
         this.#finish(run, run.timedOut ? "timeout" : run.cancelReason ? "cancelled" : "exit");
+        this.#terminate(run, false);
       }
     });
   }
@@ -265,11 +267,11 @@ export class SubprocessExecutionBackend implements ExecutionBackend {
     if (!run.child.stdin.destroyed && !run.child.stdin.writableEnded) {
       run.child.stdin.end();
     }
-    if (!run.exited) {
+    if (process.platform !== "win32" || !run.exited) {
       killChild(run, "SIGTERM");
     }
     run.hardKill ??= setTimeout(() => {
-      if (!run.exited) {
+      if (process.platform !== "win32" || !run.exited) {
         killChild(run, "SIGKILL");
       }
     }, this.#killGraceMs);
@@ -423,6 +425,8 @@ export function buildPiRpcArgs(input: SpawnInput): readonly string[] {
     "--no-skills",
     "--no-prompt-templates",
     "--no-themes",
+    "--system-prompt",
+    CHILD_SYSTEM_PROMPT,
   ];
   const modelArgs = input.agent.model === "inherit" ? [] : ["--model", input.agent.model];
   return tools.length > 0 ? [...args, ...modelArgs, "--tools", tools.join(",")] : [...args, ...modelArgs, "--no-tools"];

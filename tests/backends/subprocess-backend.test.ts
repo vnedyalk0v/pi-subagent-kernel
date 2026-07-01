@@ -188,6 +188,8 @@ describe("SubprocessExecutionBackend", () => {
       "--no-skills",
       "--no-prompt-templates",
       "--no-themes",
+      "--system-prompt",
+      "You are an isolated Pi SubAgent Kernel child. Follow the user prompt and return only the requested JSON RunEnvelope.",
       "--tools",
       "read,grep,find,ls",
     ]);
