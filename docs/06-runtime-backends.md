@@ -73,11 +73,37 @@ Spawn a child Pi process for stronger isolation and independent lifecycle.
 - Must parse structured output or fall back to artifacted raw output.
 - Must avoid leaking secrets into command-line arguments where process lists can expose them.
 
-### Open questions to verify locally
+### Local verification for subprocess alpha
 
-- Exact best Pi CLI mode for structured child execution in the installed version.
-- Whether JSON/RPC/print modes expose enough metadata for streaming status.
-- How to pass tool allowlists and model selection to child Pi in the current CLI.
+Verified locally during issue #23 on 2026-07-01 with `@earendil-works/pi-coding-agent` 0.80.3.
+
+Preferred child command shape for the alpha is RPC mode, with project resources disabled unless explicitly allowed by policy:
+
+```bash
+PI_TELEMETRY=0 pi --mode rpc --no-session --no-approve --offline \
+  --no-context-files --no-extensions --no-skills --no-prompt-templates --no-themes \
+  --tools read,grep,find,ls
+```
+
+Use `--no-tools` for agents that need no tools. Use `--no-extensions -e <trusted-extension>` only for a kernel-owned guard extension; `--no-extensions` disables discovery but explicit `-e` paths still load.
+
+Verified behavior:
+
+- `--mode rpc` is the safest structured subprocess integration point. Commands are JSON lines on stdin; responses, session events, and extension UI requests are JSON lines on stdout.
+- RPC output uses strict LF-delimited JSONL. Clients must split on `\n` only and strip optional trailing `\r`; do not use Node `readline`.
+- RPC responses and events share stdout. Use command `id` fields for correlation; response order is not guaranteed if multiple commands are sent without waiting.
+- `--mode json` is single-shot print mode with a session header as the first JSON line and session events after that. It has no stdin command channel after startup.
+- `--no-session` produces an ephemeral child; RPC `get_state` omits `sessionFile`. Without `--no-session`, `get_state` reports the intended session file path, but the file may not exist until entries are written.
+- Non-interactive modes do not show a project-trust prompt. `--no-approve` ignores project resources for that run; `--approve` trusts them.
+- `--offline` disables Pi startup network operations such as update checks; it is not the kernel's child `network = none` policy.
+- `--tools` allowlists only whole tool names. It cannot express the kernel's narrower `bash:test-only` policy by itself.
+- RPC `abort_bash` cancelled a local long-running bash command and returned `{ "cancelled": true }`. SIGTERM to the Pi process exited with code 143.
+
+### Remaining unknowns before a real Pi-child backend
+
+- Active model-call cancellation via RPC `abort` was not exercised locally to avoid sending a live prompt to a provider.
+- A safe way to expose `bash:test-only` needs either a kernel-owned guard extension, an OS/container sandbox, or bash disabled for the first subprocess alpha.
+- Final prompt/result extraction should be validated with a live model smoke test before claiming real subprocess execution support.
 
 Do not hardcode third-party package subprocess command lines without confirming current Pi behavior.
 
