@@ -85,7 +85,9 @@ describe("SubprocessExecutionBackend", () => {
     assert.equal(result.error?.code, "SUBPROCESS_INVALID_RESULT");
     assert.match(String(result.error?.details?.stdout), /"messages":"\[redacted\]"/);
     assert.match(String(result.error?.details?.stdout), /"toolResults":"\[redacted\]"/);
-    assert.doesNotMatch(String(result.error?.details?.stdout), /SECRET_FILE_CONTENT|not json/);
+    assert.match(String(result.error?.details?.stdout), /"summary":"\[redacted\]"/);
+    assert.match(String(result.error?.details?.stdout), /"details":"\[redacted\]"/);
+    assert.doesNotMatch(String(result.error?.details?.stdout), /SECRET_|not json/);
   });
 
   it("returns the RPC prompt rejection instead of waiting for timeout", async () => {
@@ -106,8 +108,16 @@ describe("SubprocessExecutionBackend", () => {
     const result = await subprocess.result("run_subprocess_failed_details");
 
     assert.equal(result.status, "failed");
+    assert.equal(result.summary, "Child subprocess reported failure.");
     assert.equal(result.error?.message, "Child subprocess reported failure.");
     assert.deepEqual(result.error?.details, { redacted: true });
+    assert.deepEqual(result.findings, []);
+    assert.deepEqual(result.artifacts, []);
+    assert.deepEqual(result.filesRead, ["README.md"]);
+    assert.deepEqual(result.filesChanged, []);
+    assert.deepEqual(result.testsRun, []);
+    assert.deepEqual(result.nextActions, []);
+    assert.doesNotMatch(JSON.stringify(result), /SECRET_/);
   });
 
   it("parses valid failure envelopes from nonzero exits", async () => {

@@ -19,6 +19,7 @@ const MAX_STDOUT_LINE_BYTES = 1024 * 1024;
 const MAX_TIMEOUT_MS = 2_147_483_647;
 const RPC_THINKING_LEVELS = new Set(["off", "minimal", "low", "medium", "high", "xhigh"]);
 const TERMINAL_STATUSES = new Set(["completed", "failed", "cancelled", "expired"]);
+const RPC_STDOUT_METADATA_KEYS = new Set(["type", "id", "command", "success", "toolName", "toolCallId", "isError", "status"]);
 const CHILD_SYSTEM_PROMPT = "You are an isolated Pi SubAgent Kernel child. Follow the user prompt and return only the requested JSON RunEnvelope.";
 
 export interface SubprocessExecutionBackendOptions {
@@ -378,15 +379,36 @@ export class SubprocessExecutionBackend implements ExecutionBackend {
       }
       const { parentRunId: _parentRunId, error: childError, ...trustedCandidate } = candidate;
       const childFailed = candidate.status === "failed" || candidate.status === "expired";
+      if (childFailed) {
+        return parseRunEnvelope({
+          id: run.input.runId,
+          ...(run.input.context.parentRunId !== undefined ? { parentRunId: run.input.context.parentRunId } : {}),
+          agent: run.input.agent.name,
+          runtime: this.id,
+          contextMode: run.input.context.mode,
+          status: candidate.status,
+          startedAt: run.startedAt,
+          endedAt,
+          summary: "Child subprocess reported failure.",
+          findings: [],
+          artifacts: [],
+          filesRead: run.input.context.files,
+          filesChanged: [],
+          commandsRun: [this.#command],
+          testsRun: [],
+          cost: candidate.cost,
+          confidence: 0,
+          nextActions: [],
+          error: sanitizeChildError(childError ?? { code: "CHILD_FAILED", message: "Child subprocess reported failure.", retryable: false }),
+        });
+      }
       return parseRunEnvelope({
         ...trustedCandidate,
-        ...(childError !== undefined ? { error: sanitizeChildError(childError) } : {}),
         id: run.input.runId,
         ...(run.input.context.parentRunId !== undefined ? { parentRunId: run.input.context.parentRunId } : {}),
         agent: run.input.agent.name,
         runtime: this.id,
         contextMode: run.input.context.mode,
-        summary: childFailed ? "Child subprocess reported failure." : candidate.summary,
         startedAt: run.startedAt,
         endedAt,
         status: candidate.status,
@@ -670,14 +692,19 @@ function redactRpcStdout(stdout: string): string {
       if (!event) {
         return line.trimStart().startsWith("{") ? "[redacted malformed JSONL]" : line.trim() ? "[redacted]" : line;
       }
-      for (const key of ["message", "messages", "assistantMessageEvent", "partialResult", "result", "toolResults", "error", "args"]) {
-        if (Object.hasOwn(event, key)) {
-          event[key] = "[redacted]";
-        }
-      }
-      return JSON.stringify(event);
+      return JSON.stringify(redactStructuredStdoutEvent(event));
     })
     .join("\n");
+}
+
+function redactStructuredStdoutEvent(event: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(event).map(([key, value]) => [key, RPC_STDOUT_METADATA_KEYS.has(key) && isJsonPrimitive(value) ? value : "[redacted]"]),
+  );
+}
+
+function isJsonPrimitive(value: unknown): value is string | number | boolean | null {
+  return value === null || ["string", "number", "boolean"].includes(typeof value);
 }
 
 function toTimeoutMs(maxRuntimeSec: number): number {
