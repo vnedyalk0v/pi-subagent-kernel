@@ -1,4 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { existsSync } from "node:fs";
+import { delimiter, isAbsolute, join, resolve } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 
 import {
@@ -442,7 +444,24 @@ function buildWindowsPiRpcArgs(input: SpawnInput): readonly string[] {
   if (input.agent.model !== "inherit" && !/^[\w./:@+-]+$/u.test(input.agent.model)) {
     throw new Error("agent.model contains characters unsafe for the default Windows Pi launcher.");
   }
-  return ["/d", "/s", "/c", "pi", ...buildPiRpcArgs(input)];
+  return ["/d", "/s", "/c", resolveWindowsPiCommand(), ...buildPiRpcArgs(input)];
+}
+
+function resolveWindowsPiCommand(): string {
+  const extensions = (process.env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD").split(";").filter(Boolean);
+  for (const rawDir of (process.env.PATH ?? "").split(delimiter)) {
+    const dir = rawDir.replace(/^"|"$/g, "");
+    if (!dir || !isAbsolute(dir) || resolve(dir) === process.cwd()) {
+      continue;
+    }
+    for (const extension of extensions) {
+      const candidate = join(dir, `pi${extension.toLowerCase()}`);
+      if (existsSync(candidate)) {
+        return candidate;
+      }
+    }
+  }
+  throw new Error("Unable to resolve a trusted Pi command from PATH for the default Windows subprocess backend.");
 }
 
 export function buildPiRpcArgs(input: SpawnInput): readonly string[] {
