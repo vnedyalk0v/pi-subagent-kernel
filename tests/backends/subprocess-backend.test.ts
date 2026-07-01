@@ -108,6 +108,16 @@ describe("SubprocessExecutionBackend", () => {
     assert.ok(String(result.error?.details?.stdout).length < 66 * 1024);
   });
 
+  it("keeps scanning JSONL after a dropped oversized stdout line", async () => {
+    const subprocess = backend("subprocess-large-line-then-result.mjs");
+    await subprocess.spawn(spawnInput("run_subprocess_large_then_result", 5));
+
+    const result = await subprocess.result("run_subprocess_large_then_result");
+
+    assert.equal(result.status, "completed");
+    assert.equal(result.summary, "result after large line");
+  });
+
   it("expires and kills a child process after timeout", async () => {
     const subprocess = backend("subprocess-hang.mjs");
     await subprocess.spawn(spawnInput("run_subprocess_timeout", 1));
@@ -140,15 +150,23 @@ describe("SubprocessExecutionBackend", () => {
     assert.match(result.summary, /No longer needed/);
   });
 
-  it("rejects full parent context before spawning", async () => {
+  it("rejects unsupported context modes before spawning", async () => {
     const subprocess = backend("subprocess-rpc-success.mjs");
-    const unsafe = { ...spawnInput("run_subprocess_full"), context: { mode: "full", files: [] } } as SpawnInput;
+    const full = { ...spawnInput("run_subprocess_full"), context: { mode: "full", files: [] } } as SpawnInput;
+    const fork = { ...spawnInput("run_subprocess_fork"), context: { mode: "fork", files: [] } } as SpawnInput;
 
-    await assert.rejects(() => subprocess.spawn(unsafe), /context\.mode full requires explicit policy approval/);
+    await assert.rejects(() => subprocess.spawn(full), /context\.mode full requires explicit policy approval/);
+    await assert.rejects(() => subprocess.spawn(fork), /context\.mode fork is not supported/);
+  });
+
+  it("rejects runtime limits larger than Node timers support", async () => {
+    const subprocess = backend("subprocess-rpc-success.mjs");
+    await assert.rejects(() => subprocess.spawn(spawnInput("run_subprocess_huge_timeout", 3_000_000)), /maxRuntimeSec/);
   });
 
   it("builds the hardened Pi RPC command without inherited project resources or bash", () => {
     const args = buildPiRpcArgs(spawnInput("run_subprocess_args"));
+    const noFilesystemArgs = buildPiRpcArgs(parseSpawnInput({ ...spawnInput("run_subprocess_no_tools"), policy: { filesystem: "none" } }));
 
     assert.deepEqual(args, [
       "--mode",
@@ -164,5 +182,6 @@ describe("SubprocessExecutionBackend", () => {
       "--tools",
       "read,grep,find,ls",
     ]);
+    assert.deepEqual(noFilesystemArgs.at(-1), "--no-tools");
   });
 });

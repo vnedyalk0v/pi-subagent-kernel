@@ -13,6 +13,7 @@ import { parseRunEnvelope, type RunEnvelope } from "../contracts/run-envelope.ts
 
 const READ_ONLY_PI_TOOLS = Object.freeze(["read", "grep", "find", "ls"] as const);
 const MAX_CAPTURE_BYTES = 64 * 1024;
+const MAX_TIMEOUT_MS = 2_147_483_647;
 
 export interface SubprocessExecutionBackendOptions {
   command?: string;
@@ -33,6 +34,7 @@ interface SubprocessRun {
   stdout: string;
   stderr: string;
   stdoutBuffer: string;
+  discardingStdoutLine: boolean;
   finalText?: string;
   exitCode?: number | null;
   signal?: NodeJS.Signals | null;
@@ -73,6 +75,10 @@ export class SubprocessExecutionBackend implements ExecutionBackend {
       throw new Error(`Duplicate subprocess run "${normalized.runId}".`);
     }
 
+    if (normalized.context.mode === "fork") {
+      throw new Error("context.mode fork is not supported by the subprocess alpha backend.");
+    }
+
     const startedAt = this.#now().toISOString();
     const status = parseRunStatus({
       id: normalized.runId,
@@ -87,12 +93,13 @@ export class SubprocessExecutionBackend implements ExecutionBackend {
     const result = new Promise<RunEnvelope>((done) => {
       resolve = done;
     });
+    const timeoutMs = toTimeoutMs(normalized.limits.maxRuntimeSec);
     const child = spawn(this.#command, this.#resolveArgs(normalized), {
       cwd: this.#cwd,
       env: this.#env ? { ...process.env, PI_TELEMETRY: "0", ...this.#env } : { ...process.env, PI_TELEMETRY: "0" },
       stdio: "pipe",
     });
-    const timeout = setTimeout(() => this.#timeout(normalized.runId), normalized.limits.maxRuntimeSec * 1000);
+    const timeout = setTimeout(() => this.#timeout(normalized.runId), timeoutMs);
     const run: SubprocessRun = {
       input: normalized,
       child,
@@ -101,6 +108,7 @@ export class SubprocessExecutionBackend implements ExecutionBackend {
       stdout: "",
       stderr: "",
       stdoutBuffer: "",
+      discardingStdoutLine: false,
       timedOut: false,
       finished: false,
       exited: false,
@@ -111,7 +119,11 @@ export class SubprocessExecutionBackend implements ExecutionBackend {
     this.#runs.set(normalized.runId, run);
     this.#attach(run);
 
-    child.stdin.write(buildPromptCommand(normalized));
+    child.stdin.write(buildPromptCommand(normalized), (error) => {
+      if (error && !run.finished) {
+        this.#finish(run, "error", { error });
+      }
+    });
     return status;
   }
 
@@ -144,21 +156,24 @@ export class SubprocessExecutionBackend implements ExecutionBackend {
     run.child.stdout.on("data", (chunk: Buffer) => {
       const text = decoder.write(chunk);
       run.stdout = appendCapture(run.stdout, text);
-      run.stdoutBuffer = appendCapture(run.stdoutBuffer, text);
-      this.#drainStdout(run);
+      this.#appendStdoutBuffer(run, text);
     });
     run.child.stdout.on("end", () => {
       const text = decoder.end();
       if (text) {
         run.stdout = appendCapture(run.stdout, text);
-        run.stdoutBuffer = appendCapture(run.stdoutBuffer, text);
-        this.#drainStdout(run);
+        this.#appendStdoutBuffer(run, text);
       }
       this.#handleStdoutLine(run, run.stdoutBuffer);
       run.stdoutBuffer = "";
     });
     run.child.stderr.on("data", (chunk: Buffer) => {
       run.stderr = appendCapture(run.stderr, chunk.toString("utf8"));
+    });
+    run.child.stdin.on("error", (error) => {
+      if (!run.finished) {
+        this.#finish(run, "error", { error });
+      }
     });
     run.child.on("error", (error) => this.#finish(run, "error", { error }));
     run.child.on("close", (code, signal) => {
@@ -174,15 +189,34 @@ export class SubprocessExecutionBackend implements ExecutionBackend {
     });
   }
 
-  #drainStdout(run: SubprocessRun): void {
-    while (true) {
-      const newlineIndex = run.stdoutBuffer.indexOf("\n");
+  #appendStdoutBuffer(run: SubprocessRun, text: string): void {
+    let rest = text;
+    while (rest) {
+      if (run.discardingStdoutLine) {
+        const newlineIndex = rest.indexOf("\n");
+        if (newlineIndex === -1) {
+          return;
+        }
+        rest = rest.slice(newlineIndex + 1);
+        run.discardingStdoutLine = false;
+      }
+
+      const newlineIndex = rest.indexOf("\n");
+      const fragment = newlineIndex === -1 ? rest : rest.slice(0, newlineIndex + 1);
+      if (run.stdoutBuffer.length + fragment.length > MAX_CAPTURE_BYTES) {
+        run.stdoutBuffer = "";
+        run.discardingStdoutLine = newlineIndex === -1;
+        rest = newlineIndex === -1 ? "" : rest.slice(newlineIndex + 1);
+        continue;
+      }
+
+      run.stdoutBuffer += fragment;
       if (newlineIndex === -1) {
         return;
       }
-      const rawLine = run.stdoutBuffer.slice(0, newlineIndex);
-      run.stdoutBuffer = run.stdoutBuffer.slice(newlineIndex + 1);
-      this.#handleStdoutLine(run, rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine);
+      rest = rest.slice(newlineIndex + 1);
+      this.#handleStdoutLine(run, run.stdoutBuffer.slice(0, -1).replace(/\r$/, ""));
+      run.stdoutBuffer = "";
     }
   }
 
@@ -191,13 +225,16 @@ export class SubprocessExecutionBackend implements ExecutionBackend {
       return;
     }
     const event = parseJsonObject(line);
+    if (run.timedOut || run.cancelReason) {
+      return;
+    }
     if (event?.type === "response" && event.command === "prompt" && event.success === false) {
       run.rpcError = typeof event.error === "string" ? event.error : "RPC prompt command was rejected.";
       this.#finish(run, "rpc_rejected");
       this.#terminate(run, false);
       return;
     }
-    if (event?.type !== "agent_end" || run.timedOut || run.cancelReason) {
+    if (event?.type !== "agent_end") {
       return;
     }
 
@@ -369,7 +406,7 @@ export class SubprocessExecutionBackend implements ExecutionBackend {
 }
 
 export function buildPiRpcArgs(input: SpawnInput): readonly string[] {
-  const tools = READ_ONLY_PI_TOOLS.filter((tool) => input.agent.tools.includes(tool));
+  const tools = input.policy.filesystem === "none" ? [] : READ_ONLY_PI_TOOLS.filter((tool) => input.agent.tools.includes(tool));
   const args = [
     "--mode",
     "rpc",
@@ -441,6 +478,14 @@ function parseJsonObject(line: string): Record<string, unknown> | undefined {
 function appendCapture(current: string, chunk: string): string {
   const next = current + chunk;
   return next.length <= MAX_CAPTURE_BYTES ? next : `${next.slice(0, MAX_CAPTURE_BYTES)}\n[truncated]`;
+}
+
+function toTimeoutMs(maxRuntimeSec: number): number {
+  const timeoutMs = maxRuntimeSec * 1000;
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs > MAX_TIMEOUT_MS) {
+    throw new Error(`limits.maxRuntimeSec must be ${Math.floor(MAX_TIMEOUT_MS / 1000)} seconds or less for subprocess runs.`);
+  }
+  return timeoutMs;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
