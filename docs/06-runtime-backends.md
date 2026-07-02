@@ -107,7 +107,7 @@ Verified behavior:
 
 ### Implementation status for subprocess alpha
 
-`SubprocessExecutionBackend` is implemented and exported behind the `ExecutionBackend` interface. It starts a child process, sends one RPC `prompt` command over stdin, parses RPC JSONL stdout for the final assistant text, validates that text as a `RunEnvelope`, captures bounded stdout/stderr for failure details, enforces `maxRuntimeSec` timeout, and terminates the child on cancellation. The default command uses the hardened RPC shape above, disables inherited project resources, and only passes whole read-only Pi tool names; `bash:test-only` remains disabled until a guard extension or sandbox exists.
+`SubprocessExecutionBackend` is implemented and exported behind the `ExecutionBackend` interface. It starts a child process, sends one RPC `prompt` command over stdin, parses RPC JSONL stdout for the final assistant text, validates that text as a `RunEnvelope`, captures bounded/redacted stdout/stderr for failure details, enforces `maxRuntimeSec` timeout and `maxThreads` for direct backend callers, and terminates the child on cancellation. The default command uses the hardened RPC shape above, disables inherited project resources, and only passes whole read-only Pi tool names; `bash:test-only` remains disabled until a guard extension or sandbox exists.
 
 The current tests use controlled Node fixture processes, not live model calls. Do not claim real Pi child execution support in user-facing docs until a live-model smoke test validates result extraction and cancellation behavior.
 

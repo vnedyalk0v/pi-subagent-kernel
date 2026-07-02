@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { describe, it } from "node:test";
@@ -230,6 +230,18 @@ describe("SubprocessExecutionBackend", () => {
     assert.match(result.summary, /No longer needed/);
   });
 
+  it("enforces maxThreads for direct backend callers", async () => {
+    const subprocess = backend("subprocess-hang.mjs");
+    const first = spawnInput("run_subprocess_thread_1", 5);
+    await subprocess.spawn({ ...first, policy: { ...first.policy, maxThreads: 1 } });
+
+    await assert.rejects(
+      () => subprocess.spawn({ ...spawnInput("run_subprocess_thread_2", 5), policy: { ...first.policy, maxThreads: 1 } }),
+      /maxThreads=1/,
+    );
+    await subprocess.cancel("run_subprocess_thread_1", "test cleanup");
+  });
+
   it("rejects unsupported context modes before spawning", async () => {
     const subprocess = backend("subprocess-rpc-success.mjs");
     const full = { ...spawnInput("run_subprocess_full"), context: { mode: "full", files: [] } } as SpawnInput;
@@ -258,6 +270,7 @@ describe("SubprocessExecutionBackend", () => {
     const bin = join(root, "trusted bin");
     const trustRoot = join(root, "workspace");
     mkdirSync(bin);
+    mkdirSync(trustRoot);
     writeFileSync(join(bin, "pi.cmd"), "");
     process.env.PATH = oldPath ? `${bin}${delimiter}${oldPath}` : bin;
     process.env.PATHEXT = ".CMD";
@@ -268,6 +281,34 @@ describe("SubprocessExecutionBackend", () => {
       assert.deepEqual(args.slice(0, 3), ["/d", "/s", "/c"]);
       assert.match(String(args[3]), /^"".*pi\.cmd" "/);
       assert.equal(String(args[3]).endsWith("\""), true);
+    } finally {
+      process.env.PATH = oldPath;
+      process.env.PATHEXT = oldPathext;
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects PATH directories that resolve inside the backend trust root", () => {
+    const oldPath = process.env.PATH;
+    const oldPathext = process.env.PATHEXT;
+    const root = mkdtempSync(join(tmpdir(), "pi-kernel-path-"));
+    const trustRoot = join(root, "workspace");
+    const workspaceBin = join(trustRoot, "node_modules", ".bin");
+    const linkToWorkspaceBin = join(root, "linked-bin");
+    const safeBin = join(root, "safe-bin");
+    mkdirSync(workspaceBin, { recursive: true });
+    mkdirSync(safeBin);
+    symlinkSync(workspaceBin, linkToWorkspaceBin, "dir");
+    writeFileSync(join(workspaceBin, "pi.cmd"), "");
+    writeFileSync(join(safeBin, "pi.cmd"), "");
+    process.env.PATH = `${linkToWorkspaceBin}${delimiter}${safeBin}`;
+    process.env.PATHEXT = ".CMD";
+
+    try {
+      const args = buildWindowsPiRpcArgs(spawnInput("run_subprocess_realpath_args"), trustRoot);
+
+      assert.ok(String(args[3]).includes(safeBin));
+      assert.ok(!String(args[3]).includes(linkToWorkspaceBin));
     } finally {
       process.env.PATH = oldPath;
       process.env.PATHEXT = oldPathext;

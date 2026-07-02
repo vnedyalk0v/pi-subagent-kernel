@@ -1,5 +1,5 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import { delimiter, isAbsolute, join, resolve, sep } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 
@@ -12,6 +12,7 @@ import {
   type SpawnInput,
 } from "../contracts/execution-backend.ts";
 import { parseRunEnvelope, type RunEnvelope } from "../contracts/run-envelope.ts";
+import { RUN_STATES } from "../contracts/run-state.ts";
 
 const READ_ONLY_PI_TOOLS = Object.freeze(["read", "grep", "find", "ls"] as const);
 const MAX_CAPTURE_BYTES = 64 * 1024;
@@ -19,7 +20,13 @@ const MAX_STDOUT_LINE_BYTES = 1024 * 1024;
 const MAX_TIMEOUT_MS = 2_147_483_647;
 const RPC_THINKING_LEVELS = new Set(["off", "minimal", "low", "medium", "high", "xhigh"]);
 const TERMINAL_STATUSES = new Set(["completed", "failed", "cancelled", "expired"]);
-const RPC_STDOUT_METADATA_KEYS = new Set(["type", "id", "command", "success", "toolName", "toolCallId", "isError", "status"]);
+const RPC_STDOUT_SAFE_STRINGS: ReadonlyMap<string, ReadonlySet<string>> = new Map([
+  ["type", new Set(["response", "agent_end", "tool_execution_start", "tool_execution_update", "tool_execution_end", "tool_execution_complete", "turn_end"])],
+  ["command", new Set(["prompt", "set_thinking_level"])],
+  ["toolName", new Set<string>(READ_ONLY_PI_TOOLS)],
+  ["status", new Set<string>(RUN_STATES)],
+]);
+const RPC_STDOUT_SAFE_BOOLEANS = new Set(["success", "isError"]);
 const CHILD_SYSTEM_PROMPT = "You are an isolated Pi SubAgent Kernel child. Follow the user prompt and return only the requested JSON RunEnvelope.";
 
 export interface SubprocessExecutionBackendOptions {
@@ -93,6 +100,10 @@ export class SubprocessExecutionBackend implements ExecutionBackend {
     }
     if ((normalized.policy.filesystem === "none" || normalized.agent.sandbox.filesystem === "none") && normalized.context.files.length > 0) {
       throw new Error("context.files are not supported when filesystem access is none.");
+    }
+    const activeRuns = Array.from(this.#runs.values()).filter((run) => !run.finished).length;
+    if (activeRuns >= normalized.policy.maxThreads) {
+      throw new Error(`policy.maxThreads: ${activeRuns} active run(s) already meet the maxThreads=${normalized.policy.maxThreads} cap.`);
     }
 
     const thinkingCommand = buildThinkingCommand(normalized);
@@ -208,6 +219,10 @@ export class SubprocessExecutionBackend implements ExecutionBackend {
       this.#terminate(run, false);
     });
     run.child.on("close", (code, signal) => {
+      if (run.hardKill) {
+        clearTimeout(run.hardKill);
+        delete run.hardKill;
+      }
       if (!run.exited) {
         run.exited = true;
         run.exitCode = code;
@@ -320,6 +335,7 @@ export class SubprocessExecutionBackend implements ExecutionBackend {
     run.hardKill ??= setTimeout(() => {
       killChild(run, "SIGKILL");
     }, this.#killGraceMs);
+    run.hardKill.unref();
   }
 
   #finish(run: SubprocessRun, reason: FinishReason, options: { error?: Error } = {}): void {
@@ -531,9 +547,17 @@ function isTrustedPathDir(dir: string, trustRoot = process.cwd()): boolean {
   if (!cleanDir || !isAbsolute(cleanDir)) {
     return false;
   }
-  const resolvedDir = normalizeTrustPath(resolve(cleanDir));
-  const cwd = normalizeTrustPath(resolve(trustRoot));
-  return resolvedDir !== cwd && !resolvedDir.startsWith(`${cwd}${sep}`);
+  const resolvedDir = realTrustPath(cleanDir);
+  const cwd = realTrustPath(resolve(trustRoot));
+  return resolvedDir !== undefined && cwd !== undefined && resolvedDir !== cwd && !resolvedDir.startsWith(`${cwd}${sep}`);
+}
+
+function realTrustPath(path: string): string | undefined {
+  try {
+    return normalizeTrustPath(realpathSync.native(resolve(path)));
+  } catch {
+    return undefined;
+  }
 }
 
 function normalizeTrustPath(path: string): string {
@@ -699,13 +723,18 @@ function redactRpcStdout(stdout: string): string {
 }
 
 function redactStructuredStdoutEvent(event: Record<string, unknown>): Record<string, unknown> {
-  return Object.fromEntries(
-    Object.entries(event).map(([key, value]) => [key, RPC_STDOUT_METADATA_KEYS.has(key) && isJsonPrimitive(value) ? value : "[redacted]"]),
-  );
+  return Object.fromEntries(Object.entries(event).map(([key, value]) => [key, safeStructuredStdoutValue(key, value)]));
 }
 
-function isJsonPrimitive(value: unknown): value is string | number | boolean | null {
-  return value === null || ["string", "number", "boolean"].includes(typeof value);
+function safeStructuredStdoutValue(key: string, value: unknown): unknown {
+  const safeStrings = RPC_STDOUT_SAFE_STRINGS.get(key);
+  if (typeof value === "string" && safeStrings?.has(value)) {
+    return value;
+  }
+  if (typeof value === "boolean" && RPC_STDOUT_SAFE_BOOLEANS.has(key)) {
+    return value;
+  }
+  return "[redacted]";
 }
 
 function toTimeoutMs(maxRuntimeSec: number): number {
