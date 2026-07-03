@@ -3,6 +3,8 @@ import { createInterface } from "node:readline";
 
 const FIXED_TIME = "2026-06-26T10:00:00.000Z";
 const SCOUT_FILES = [
+  "README.md",
+  "docs/dogfood-alpha-scenario.md",
   "src/registry/built-in-agents.ts",
   "src/tools/subagent-tools.ts",
   "src/backends/subprocess-backend.ts",
