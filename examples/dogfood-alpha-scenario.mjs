@@ -9,13 +9,6 @@ import {
 } from "../dist/index.js";
 
 const FIXED_TIME = "2026-06-26T10:00:00.000Z";
-const TARGET_FILES = [
-  "src/registry/built-in-agents.ts",
-  "src/tools/subagent-tools.ts",
-  "src/backends/subprocess-backend.ts",
-  "examples/mock-backend-demo.mjs",
-  "tests/examples/mock-backend-demo.test.ts",
-];
 
 const registry = new AgentRegistry();
 registerBuiltInAgents(registry);
@@ -27,24 +20,28 @@ const backend = new SubprocessExecutionBackend({
   killGraceMs: 10,
 });
 
-const scout = await runAgent("scout", "Find the files that define and test the current subagent workflow.", TARGET_FILES);
+const scout = await runAgent("scout", "Find the files that define and test the current subagent workflow.", []);
 const reviewer = await runAgent("reviewer", `Review the alpha dogfood surface using scout evidence:\n${JSON.stringify(slim(scout))}`, scout.filesRead);
 const tester = await runAgent("tester", `Identify missing tests or test-risk using scout evidence:\n${JSON.stringify(slim(scout))}`, scout.filesRead);
 const summarizer = await runAgent("summarizer", JSON.stringify({ scout: slim(scout), reviewer: slim(reviewer), tester: slim(tester) }), []);
 
 const results = { scout: slim(scout), reviewer: slim(reviewer), tester: slim(tester), summarizer: slim(summarizer) };
+const acceptance = {
+  scoutFoundRelevantFiles: scout.filesRead.length >= 4,
+  reviewerProducedFindings: reviewer.findings.length > 0,
+  testerIdentifiedTestRisk: tester.findings.length > 0,
+  summarizerMergedResults: summarizer.findings.length === reviewer.findings.length + tester.findings.length,
+};
+const failedRuns = Object.values(results).filter((result) => result.status === "failed" || result.status === "expired");
+const failedAcceptance = Object.entries(acceptance).filter(([, passed]) => !passed).map(([name]) => name);
+const scenarioFailed = failedRuns.length > 0 || failedAcceptance.length > 0;
 
 console.log(JSON.stringify({
   scenario: "alpha-dogfood-v1",
   backend: "deterministic-subprocess-fixture",
   productionReadinessClaimed: false,
   agents: Object.keys(results),
-  acceptance: {
-    scoutFoundRelevantFiles: scout.filesRead.length >= 4,
-    reviewerProducedFindings: reviewer.findings.length > 0,
-    testerIdentifiedTestRisk: tester.findings.length > 0,
-    summarizerMergedResults: summarizer.findings.length === reviewer.findings.length + tester.findings.length,
-  },
+  acceptance,
   results,
   followUpLedger: [
     {
@@ -55,9 +52,11 @@ console.log(JSON.stringify({
     },
     {
       signal: "failure",
-      observed: false,
-      followUpIssue: null,
-      note: "No scenario failure was observed in the deterministic run; no new follow-up issue was opened.",
+      observed: scenarioFailed,
+      followUpIssue: scenarioFailed ? "new issue required" : null,
+      note: scenarioFailed
+        ? `Scenario failed: runs=${failedRuns.map((run) => run.agent).join(",") || "none"}; acceptance=${failedAcceptance.join(",") || "none"}.`
+        : "No scenario failure was observed in the deterministic run; no new follow-up issue was opened.",
     },
     {
       signal: "known-limitation",
@@ -67,6 +66,10 @@ console.log(JSON.stringify({
     },
   ],
 }, null, 2));
+
+if (scenarioFailed) {
+  process.exitCode = 1;
+}
 
 async function runAgent(name, task, files) {
   const agent = registry.get(name);

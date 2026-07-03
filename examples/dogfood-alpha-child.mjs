@@ -1,6 +1,14 @@
+import { existsSync } from "node:fs";
 import { createInterface } from "node:readline";
 
 const FIXED_TIME = "2026-06-26T10:00:00.000Z";
+const SCOUT_FILES = [
+  "src/registry/built-in-agents.ts",
+  "src/tools/subagent-tools.ts",
+  "src/backends/subprocess-backend.ts",
+  "examples/mock-backend-demo.mjs",
+  "tests/examples/mock-backend-demo.test.ts",
+];
 
 createInterface({ input: process.stdin }).on("line", handleLine);
 
@@ -57,11 +65,15 @@ function envelopeForPrompt(prompt) {
     return {
       ...base,
       summary: "Scout mapped the built-in agents, tool surface, subprocess backend, and existing mock demo coverage.",
+      filesRead: SCOUT_FILES.filter((path) => existsSync(path)),
       nextActions: ["Hand these files to reviewer and tester for the alpha dogfood pass."],
     };
   }
 
   if (agent === "reviewer") {
+    if (!hasScoutEvidence(parseTaskJson(task))) {
+      return failed(base, "Reviewer fixture did not receive scout evidence.");
+    }
     return {
       ...base,
       summary: "Reviewer found no correctness blocker, but flagged the deterministic-only alpha limitation.",
@@ -77,6 +89,9 @@ function envelopeForPrompt(prompt) {
   }
 
   if (agent === "tester") {
+    if (!hasScoutEvidence(parseTaskJson(task))) {
+      return failed(base, "Tester fixture did not receive scout evidence.");
+    }
     return {
       ...base,
       summary: "Tester identified output-shape drift as the main test risk for the dogfood scenario.",
@@ -134,11 +149,29 @@ function taskText(prompt) {
 }
 
 function parseTaskJson(task) {
+  const start = task.indexOf("{");
+  if (start === -1) {
+    return {};
+  }
   try {
-    return JSON.parse(task);
+    return JSON.parse(task.slice(start));
   } catch {
     return {};
   }
+}
+
+function hasScoutEvidence(value) {
+  return Array.isArray(value.filesRead) && value.filesRead.includes("src/registry/built-in-agents.ts");
+}
+
+function failed(base, summary) {
+  return {
+    ...base,
+    status: "failed",
+    summary,
+    confidence: 0,
+    error: { code: "DOGFOOD_FIXTURE_MISSING_EVIDENCE", message: summary, retryable: false },
+  };
 }
 
 function uniqueFindings(findings) {
