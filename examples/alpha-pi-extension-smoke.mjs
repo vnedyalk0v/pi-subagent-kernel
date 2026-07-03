@@ -117,22 +117,23 @@ export default function(pi) {
   pi.registerCommand("alpha-tool-flow", {
     description: "Exercise Pi SubAgent Kernel mock tool flow.",
     handler: async (_args, ctx) => {
-      const getCaptured = (name) => {
+      const registeredDefinition = (name) => {
         const tool = captured.find((item) => item.name === name);
         if (!tool) throw new Error(\`Missing captured tool \${name}.\`);
         return tool;
       };
 
-      const spawn = await getCaptured("subagent_spawn").execute("alpha_spawn", {
+      // Pi exposes active tool metadata, but model-free command code must call the registered definition directly.
+      const spawn = await registeredDefinition("subagent_spawn").execute("alpha_spawn", {
         agent: "scout",
         task: "Alpha smoke: inspect README.md without a model call.",
         mode: "background",
         context: { inherit: "summary", files: ["README.md"] },
       });
       const runId = spawn.details.id;
-      const status = await getCaptured("subagent_status").execute("alpha_status", { id: runId });
-      const result = await getCaptured("subagent_result").execute("alpha_result", { id: runId, includeArtifacts: true });
-      const registeredCancel = await getCaptured("subagent_cancel").execute("alpha_registered_cancel", {
+      const status = await registeredDefinition("subagent_status").execute("alpha_status", { id: runId });
+      const result = await registeredDefinition("subagent_result").execute("alpha_result", { id: runId, includeArtifacts: true });
+      const registeredCancel = await registeredDefinition("subagent_cancel").execute("alpha_registered_cancel", {
         id: runId,
         reason: "Verify the Pi-registered cancel handler on a completed run.",
       });
@@ -207,14 +208,23 @@ async function run(command, args, { timeoutMs }) {
   child.stdout.setEncoding("utf8").on("data", (chunk) => { stdout += chunk; });
   child.stderr.setEncoding("utf8").on("data", (chunk) => { stderr += chunk; });
 
-  const timer = setTimeout(() => child.kill("SIGTERM"), timeoutMs);
+  const terminate = setTimeout(() => child.kill("SIGTERM"), timeoutMs);
+  const forceKill = setTimeout(() => child.kill("SIGKILL"), timeoutMs + 1_000);
+
+  let rejectTimeout;
+  const timeout = new Promise((_, reject) => {
+    rejectTimeout = setTimeout(() => reject(new Error(`${command} timed out after ${timeoutMs}ms. stdout:\n${stdout}\nstderr:\n${stderr}`)), timeoutMs + 2_000);
+  });
+
   try {
-    const [code, signal] = await once(child, "close");
+    const [code, signal] = await Promise.race([once(child, "close"), timeout]);
     if (code !== 0) {
       throw new Error(`${command} exited with ${code ?? signal}. stdout:\n${stdout}\nstderr:\n${stderr}`);
     }
     return { stdout, stderr };
   } finally {
-    clearTimeout(timer);
+    clearTimeout(terminate);
+    clearTimeout(forceKill);
+    clearTimeout(rejectTimeout);
   }
 }
