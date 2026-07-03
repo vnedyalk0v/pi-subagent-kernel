@@ -61,10 +61,12 @@ try {
   };
 
   assert(directLoad.requiredToolsRegistered, "Pi did not expose every required subagent tool.");
+  assert(requiredTools.every((name) => directLoad.activeSubagentTools.includes(name)), "Pi did not activate every required subagent tool.");
   assert(requiredTools.every((name) => toolFlow.capturedTools.includes(name)), "The project extension did not register every required tool.");
-  assert(toolFlow.spawn.status === "completed", "spawn did not complete through the mock backend.");
+  assert(toolFlow.spawn.status === "completed" && toolFlow.spawn.mock === true, "spawn did not complete through the mock backend.");
   assert(toolFlow.status.status === "completed", "status did not report the completed run.");
-  assert(toolFlow.result.status === "completed", "result did not report the completed run.");
+  assert(toolFlow.result.status === "completed" && toolFlow.result.runtime === "sdk", "result did not report the expected mock SDK run.");
+  assert(toolFlow.registeredCancel.status === "completed" && toolFlow.registeredCancel.cancelled === false, "registered cancel tool did not inspect the completed run.");
   assert(toolFlow.cancel.status === "cancelled" && toolFlow.cancel.cancelled === true, "queued cancel did not record cancelled status.");
 
   console.log(JSON.stringify(summary, null, 2));
@@ -130,6 +132,10 @@ export default function(pi) {
       const runId = spawn.details.id;
       const status = await getCaptured("subagent_status").execute("alpha_status", { id: runId });
       const result = await getCaptured("subagent_result").execute("alpha_result", { id: runId, includeArtifacts: true });
+      const registeredCancel = await getCaptured("subagent_cancel").execute("alpha_registered_cancel", {
+        id: runId,
+        reason: "Verify the Pi-registered cancel handler on a completed run.",
+      });
 
       const agents = new AgentRegistry();
       registerBuiltInAgents(agents);
@@ -164,6 +170,11 @@ export default function(pi) {
           status: result.details.status,
           filesRead: result.details.result?.filesRead,
           cost: result.details.result?.cost,
+        },
+        registeredCancel: {
+          id: registeredCancel.details.id,
+          status: registeredCancel.details.status,
+          cancelled: registeredCancel.details.cancelled,
         },
         cancel: {
           id: cancel.details.id,

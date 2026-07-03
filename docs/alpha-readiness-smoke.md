@@ -15,7 +15,7 @@ This evidence supports internal alpha readiness only. It does not claim producti
 | Build | `npm run build --if-present` | Pass | `tsc -p tsconfig.json` completed. |
 | Mock tool flow | `npm run demo:mock` | Pass | `spawn`, `status`, `result`, and queued `cancel` completed through `MockExecutionBackend`; output has `mockOnly: true` and `piRuntimeTested: false`. |
 | Alpha dogfood | `npm run build && node examples/dogfood-alpha-scenario.mjs` | Pass | Scout/reviewer/tester/summarizer fixture acceptance all `true`; `productionReadinessClaimed: false`. |
-| Pi extension load smoke | `node examples/alpha-pi-extension-smoke.mjs` | Pass | Pi local development load exposed all four `subagent_*` tools; mock `spawn`/`status`/`result` completed; queued `cancel` recorded `cancelled`. |
+| Pi extension load smoke | `node examples/alpha-pi-extension-smoke.mjs` | Pass | Pi local development load exposed and activated all four `subagent_*` tools; mock `spawn`/`status`/`result` completed; the registered cancel handler inspected the completed run; queued `cancel` recorded `cancelled`. |
 | Diff whitespace | `git diff --check` | Pass | No whitespace errors. |
 
 ## Pi extension load smoke details
@@ -53,6 +53,7 @@ Observed result:
     "spawn": { "status": "completed", "mock": true },
     "status": { "agent": "scout", "status": "completed" },
     "result": { "agent": "scout", "runtime": "sdk", "status": "completed", "filesRead": ["README.md"] },
+    "registeredCancel": { "status": "completed", "cancelled": false },
     "cancel": { "id": "run_alpha_cancel", "status": "cancelled", "cancelled": true }
   }
 }
