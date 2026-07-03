@@ -98,21 +98,20 @@ export default function(pi) {
 }
 
 function toolFlowProbeSource() {
-  const extensionUrl = pathToFileURL(sourceExtension).href;
   const toolsUrl = pathToFileURL(sourceTools).href;
 
   return `
-import extension, { AgentRegistry, RunRegistry, registerBuiltInAgents } from ${JSON.stringify(extensionUrl)};
-import { createSubagentTools } from ${JSON.stringify(toolsUrl)};
+import { createSubagentToolServices, registerSubagentTools } from ${JSON.stringify(toolsUrl)};
 
 export default function(pi) {
   const captured = [];
-  extension({
+  const services = createSubagentToolServices();
+  registerSubagentTools({
     registerTool(tool) {
       captured.push(tool);
       pi.registerTool(tool);
     },
-  });
+  }, services);
 
   pi.registerCommand("alpha-tool-flow", {
     description: "Exercise Pi SubAgent Kernel mock tool flow.",
@@ -138,14 +137,8 @@ export default function(pi) {
         reason: "Verify the Pi-registered cancel handler on a completed run.",
       });
 
-      const agents = new AgentRegistry();
-      registerBuiltInAgents(agents);
-      const runs = new RunRegistry();
-      const deterministicTools = createSubagentTools({ agents, runs });
-      const cancelTool = deterministicTools.find((tool) => tool.name === "subagent_cancel");
-      if (!cancelTool) throw new Error("Missing deterministic subagent_cancel tool.");
-      runs.create({ id: "run_alpha_cancel", agent: "tester", task: "Queue a cancellable alpha smoke run." });
-      const cancel = await cancelTool.execute("alpha_cancel", {
+      services.runs.create({ id: "run_alpha_cancel", agent: "tester", task: "Queue a cancellable alpha smoke run." });
+      const cancel = await registeredDefinition("subagent_cancel").execute("alpha_cancel", {
         id: "run_alpha_cancel",
         reason: "Alpha smoke cancellation.",
       });

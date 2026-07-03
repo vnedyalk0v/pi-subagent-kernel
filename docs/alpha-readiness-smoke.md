@@ -59,7 +59,7 @@ Observed result:
 }
 ```
 
-The smoke command verifies extension registration through the supported `pi -e ./src/index.ts` path. The deterministic tool flow uses the project extension entrypoint in a Pi process and the mock backend; it does not call a provider or start a live child Pi session.
+The smoke command verifies extension registration through the supported `pi -e ./src/index.ts` path. The deterministic tool flow uses the same tool registration factory with injected in-memory services inside a Pi process, so it can seed and cancel a queued run without private Pi state. It does not call a provider or start a live child Pi session.
 
 ## Safety defaults evidence
 
