@@ -1,0 +1,193 @@
+import { existsSync } from "node:fs";
+import { createInterface } from "node:readline";
+
+const FIXED_TIME = "2026-06-26T10:00:00.000Z";
+const SCOUT_FILES = [
+  "README.md",
+  "docs/dogfood-alpha-scenario.md",
+  "src/registry/built-in-agents.ts",
+  "src/tools/subagent-tools.ts",
+  "src/backends/subprocess-backend.ts",
+  "examples/mock-backend-demo.mjs",
+  "tests/examples/mock-backend-demo.test.ts",
+];
+
+createInterface({ input: process.stdin }).on("line", handleLine);
+
+function handleLine(line) {
+  if (!line.trim()) {
+    return;
+  }
+
+  const event = JSON.parse(line);
+  if (event.type === "abort") {
+    process.exit(0);
+  }
+  if (event.type === "set_thinking_level") {
+    writeJson({ type: "response", command: "set_thinking_level", success: true });
+    return;
+  }
+  if (event.type !== "prompt") {
+    return;
+  }
+
+  writeJson({ type: "response", command: "prompt", success: true });
+  const envelope = envelopeForPrompt(String(event.message ?? ""));
+  writeJson({
+    type: "agent_end",
+    messages: [{ role: "assistant", content: JSON.stringify(envelope) }],
+  }, () => process.exit(0));
+}
+
+function envelopeForPrompt(prompt) {
+  const agent = matchLine(prompt, "Agent") ?? "unknown";
+  const contextMode = matchLine(prompt, "Context mode") ?? "summary";
+  const files = fileHints(prompt);
+  const task = taskText(prompt);
+  const base = {
+    id: "child_fixture_result",
+    agent,
+    runtime: "subprocess",
+    contextMode,
+    status: "completed",
+    startedAt: FIXED_TIME,
+    endedAt: FIXED_TIME,
+    findings: [],
+    artifacts: [],
+    filesRead: files,
+    filesChanged: [],
+    commandsRun: ["node examples/dogfood-alpha-child.mjs"],
+    testsRun: [],
+    cost: { estimatedUsd: null },
+    confidence: 0.86,
+    nextActions: [],
+  };
+
+  if (agent === "scout") {
+    return {
+      ...base,
+      summary: "Scout mapped the built-in agents, tool surface, subprocess backend, and existing mock demo coverage.",
+      filesRead: SCOUT_FILES.filter((path) => existsSync(path)),
+      nextActions: ["Hand these files to reviewer and tester for the alpha dogfood pass."],
+    };
+  }
+
+  if (agent === "reviewer") {
+    if (!hasScoutEvidence(parseTaskJson(task))) {
+      return failed(base, "Reviewer fixture did not receive scout evidence.");
+    }
+    return {
+      ...base,
+      summary: "Reviewer found no correctness blocker, but flagged the deterministic-only alpha limitation.",
+      findings: [{
+        severity: "low",
+        title: "Dogfood is deterministic and does not prove production readiness",
+        file: "README.md",
+        evidence: "The current README says live model-result smoke testing is still required before claiming real Pi child execution support.",
+        recommendation: "Keep the dogfood documentation explicit about fixture-only execution and leave live/manual readiness to #26.",
+      }],
+      nextActions: ["Do not claim production readiness from this scenario."],
+    };
+  }
+
+  if (agent === "tester") {
+    if (!hasScoutEvidence(parseTaskJson(task))) {
+      return failed(base, "Tester fixture did not receive scout evidence.");
+    }
+    return {
+      ...base,
+      summary: "Tester identified live Pi smoke coverage as the remaining test risk.",
+      findings: [{
+        severity: "low",
+        title: "Live Pi smoke remains outside deterministic dogfood",
+        file: "docs/dogfood-alpha-scenario.md",
+        evidence: "The documented scenario uses a deterministic local subprocess fixture and does not call a live Pi child or model.",
+        recommendation: "Track live/manual smoke coverage in #26 before alpha readiness.",
+      }],
+      nextActions: ["Use #26 to cover live/manual Pi smoke before alpha readiness."],
+    };
+  }
+
+  if (agent === "summarizer") {
+    const inputs = parseTaskJson(task);
+    const sourceResults = [inputs.scout, inputs.reviewer, inputs.tester].filter(Boolean);
+    const findings = uniqueFindings(sourceResults.flatMap((result) => result.findings ?? []));
+    const filesRead = [...new Set(sourceResults.flatMap((result) => result.filesRead ?? []))];
+    return {
+      ...base,
+      summary: "Summarizer merged scout, reviewer, and tester outputs into one alpha dogfood result.",
+      findings,
+      filesRead,
+      confidence: 0.9,
+      nextActions: [
+        "Document the deterministic result and limitation.",
+        "Use #26 for live/manual alpha readiness follow-up.",
+      ],
+    };
+  }
+
+  return { ...base, summary: `No dogfood fixture output is defined for ${agent}.`, confidence: 0.3 };
+}
+
+function matchLine(text, key) {
+  const match = text.match(new RegExp(`^${key}:\\s*(.+)$`, "m"));
+  return match?.[1]?.trim();
+}
+
+function fileHints(prompt) {
+  const start = prompt.indexOf("File hints:\n");
+  const end = prompt.indexOf("\n\nOutput mode:", start);
+  if (start === -1 || end === -1) {
+    return [];
+  }
+  const body = prompt.slice(start + "File hints:\n".length, end).trim();
+  return body && body !== "<none>" ? body.split("\n").map((line) => line.trim()).filter(Boolean) : [];
+}
+
+function taskText(prompt) {
+  const marker = "\n\nTask:\n";
+  const start = prompt.indexOf(marker);
+  return start === -1 ? "" : prompt.slice(start + marker.length).trim();
+}
+
+function parseTaskJson(task) {
+  const start = task.indexOf("{");
+  if (start === -1) {
+    return {};
+  }
+  try {
+    return JSON.parse(task.slice(start));
+  } catch {
+    return {};
+  }
+}
+
+function hasScoutEvidence(value) {
+  return Array.isArray(value.filesRead) && value.filesRead.includes("src/registry/built-in-agents.ts");
+}
+
+function failed(base, summary) {
+  return {
+    ...base,
+    status: "failed",
+    summary,
+    confidence: 0,
+    error: { code: "DOGFOOD_FIXTURE_MISSING_EVIDENCE", message: summary, retryable: false },
+  };
+}
+
+function uniqueFindings(findings) {
+  const seen = new Set();
+  return findings.filter((finding) => {
+    const key = `${finding.file ?? ""}:${finding.title}`;
+    if (seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
+}
+
+function writeJson(value, callback) {
+  process.stdout.write(`${JSON.stringify(value)}\n`, callback);
+}

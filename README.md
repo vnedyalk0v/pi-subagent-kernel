@@ -22,6 +22,18 @@ The command builds the package and runs `examples/mock-backend-demo.mjs`. It pri
 
 This demo is mock-only: it exercises local tool handlers and `MockExecutionBackend`; it does not start Pi, spawn a subprocess, call a model, or use the network.
 
+## Alpha dogfood scenario
+
+Verified command:
+
+```bash
+npm run build && node examples/dogfood-alpha-scenario.mjs
+```
+
+The command runs a deterministic local subprocess fixture for the `scout`, `reviewer`, `tester`, and `summarizer` built-ins and prints structured JSON. Results and follow-up tracking are documented in `docs/dogfood-alpha-scenario.md`.
+
+This scenario is alpha dogfood only: it does not call a model, use the network, start a live Pi child, or claim production readiness.
+
 ## What to build
 
 Build a Pi extension/package that provides a stable, safe, observable SubAgents layer:
