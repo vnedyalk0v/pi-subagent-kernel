@@ -32,7 +32,7 @@ npm run build && node examples/dogfood-alpha-scenario.mjs
 
 The command runs a deterministic local subprocess fixture for the `scout`, `reviewer`, `tester`, and `summarizer` built-ins and prints structured JSON. Results and follow-up tracking are documented in `docs/dogfood-alpha-scenario.md`.
 
-This scenario is alpha dogfood only: it does not call a model, use the network, start a live Pi child, or claim production readiness.
+This scenario is alpha dogfood only: it does not call a model, use the network, start a live Pi child, or claim production readiness. Alpha readiness gates are listed in `docs/alpha-readiness-checklist.md`.
 
 ## What to build
 

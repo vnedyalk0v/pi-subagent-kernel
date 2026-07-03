@@ -77,11 +77,11 @@ describe("examples", () => {
       dogfood.results.summarizer.findings.map((finding) => finding.title),
       [...dogfood.results.reviewer.findings, ...dogfood.results.tester.findings].map((finding) => finding.title),
     );
-    assert.ok(dogfood.results.summarizer.nextActions.some((action) => action.includes("#26")));
+    assert.ok(dogfood.results.summarizer.nextActions.some((action) => action.includes("#61")));
     assert.deepEqual(dogfood.followUpLedger.map((item) => [item.signal, item.observed, item.followUpIssue]), [
       ["false-positive", false, null],
       ["failure", false, null],
-      ["known-limitation", true, "#26"],
+      ["known-limitation", true, "#61"],
     ]);
   });
 });
