@@ -26,11 +26,14 @@ const tester = await runAgent("tester", `Identify missing tests or test-risk usi
 const summarizer = await runAgent("summarizer", JSON.stringify({ scout: slim(scout), reviewer: slim(reviewer), tester: slim(tester) }), []);
 
 const results = { scout: slim(scout), reviewer: slim(reviewer), tester: slim(tester), summarizer: slim(summarizer) };
+const expectedSummaryFindings = [...new Set([...reviewer.findings, ...tester.findings].map(findingKey))];
+const actualSummaryFindings = summarizer.findings.map(findingKey);
 const acceptance = {
   scoutFoundRelevantFiles: scout.filesRead.length >= 4,
   reviewerProducedFindings: reviewer.findings.length > 0,
   testerIdentifiedTestRisk: tester.findings.length > 0,
-  summarizerMergedResults: summarizer.findings.length === reviewer.findings.length + tester.findings.length,
+  summarizerMergedResults:
+    actualSummaryFindings.length === expectedSummaryFindings.length && expectedSummaryFindings.every((key) => actualSummaryFindings.includes(key)),
 };
 const failedRuns = Object.values(results).filter((result) => result.status === "failed" || result.status === "expired");
 const failedAcceptance = Object.entries(acceptance).filter(([, passed]) => !passed).map(([name]) => name);
@@ -117,4 +120,8 @@ function slim(result) {
     testsRun: result.testsRun,
     nextActions: result.nextActions,
   };
+}
+
+function findingKey(finding) {
+  return `${finding.file ?? ""}:${finding.title}`;
 }

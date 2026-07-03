@@ -21,7 +21,7 @@ This is an alpha dogfood run against this repository using a deterministic local
 |---|---|
 | `scout` | Reads `src/registry/built-in-agents.ts`, `src/tools/subagent-tools.ts`, `src/backends/subprocess-backend.ts`, `examples/mock-backend-demo.mjs`, and `tests/examples/mock-backend-demo.test.ts`. |
 | `reviewer` | Produces a low-severity finding that the deterministic dogfood run must not be used as a production-readiness claim. |
-| `tester` | Produces a low-severity test-risk finding that the dogfood JSON shape needs regression coverage. |
+| `tester` | Produces a low-severity test-risk finding that live Pi smoke coverage remains outside this deterministic dogfood run. |
 | `summarizer` | Deduplicates and carries forward the reviewer and tester findings, with `#26` as the live/manual alpha-readiness follow-up. |
 
 ## Follow-up ledger

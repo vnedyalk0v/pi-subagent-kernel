@@ -94,15 +94,15 @@ function envelopeForPrompt(prompt) {
     }
     return {
       ...base,
-      summary: "Tester identified output-shape drift as the main test risk for the dogfood scenario.",
+      summary: "Tester identified live Pi smoke coverage as the remaining test risk.",
       findings: [{
         severity: "low",
-        title: "Dogfood JSON needs regression coverage",
-        file: "tests/examples/mock-backend-demo.test.ts",
-        evidence: "The scenario result is consumed as structured JSON and documents acceptance evidence.",
-        recommendation: "Assert all four agent results, reviewer/tester findings, and the follow-up ledger in the example test.",
+        title: "Live Pi smoke remains outside deterministic dogfood",
+        file: "docs/dogfood-alpha-scenario.md",
+        evidence: "The documented scenario uses a deterministic local subprocess fixture and does not call a live Pi child or model.",
+        recommendation: "Track live/manual smoke coverage in #26 before alpha readiness.",
       }],
-      nextActions: ["Run npm test after changes to verify the dogfood example output."],
+      nextActions: ["Use #26 to cover live/manual Pi smoke before alpha readiness."],
     };
   }
 
