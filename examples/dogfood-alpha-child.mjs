@@ -84,7 +84,7 @@ function envelopeForPrompt(prompt) {
         title: "Dogfood is deterministic and does not prove production readiness",
         file: "README.md",
         evidence: "The current README says live model-result smoke testing is still required before claiming real Pi child execution support.",
-        recommendation: "Keep the dogfood documentation explicit about fixture-only execution and leave live/manual readiness to #61.",
+        recommendation: "Keep the dogfood documentation explicit about fixture-only execution and cite docs/alpha-readiness-smoke.md for the local Pi smoke boundary."
       }],
       nextActions: ["Do not claim production readiness from this scenario."],
     };
@@ -96,15 +96,15 @@ function envelopeForPrompt(prompt) {
     }
     return {
       ...base,
-      summary: "Tester identified live Pi smoke coverage as the remaining test risk.",
+      summary: "Tester identified live model/provider coverage as outside deterministic alpha evidence.",
       findings: [{
         severity: "low",
-        title: "Live Pi smoke remains outside deterministic dogfood",
+        title: "Live model smoke remains outside deterministic dogfood",
         file: "docs/dogfood-alpha-scenario.md",
         evidence: "The documented scenario uses a deterministic local subprocess fixture and does not call a live Pi child or model.",
-        recommendation: "Track live/manual smoke coverage in #61 before alpha readiness.",
+        recommendation: "Use docs/alpha-readiness-smoke.md for local Pi extension evidence; open a future issue if real model smoke is approved.",
       }],
-      nextActions: ["Use #61 to cover live/manual Pi smoke before alpha readiness."],
+      nextActions: ["Keep real model/provider smoke out of alpha unless explicitly approved."],
     };
   }
 
@@ -121,7 +121,7 @@ function envelopeForPrompt(prompt) {
       confidence: 0.9,
       nextActions: [
         "Document the deterministic result and limitation.",
-        "Use #61 for live/manual alpha readiness follow-up.",
+        "Use docs/alpha-readiness-smoke.md for local Pi extension-load evidence.",
       ],
     };
   }
