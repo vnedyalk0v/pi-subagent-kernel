@@ -84,7 +84,7 @@ function envelopeForPrompt(prompt) {
         title: "Dogfood is deterministic and does not prove production readiness",
         file: "README.md",
         evidence: "The current README says live model-result smoke testing is still required before claiming real Pi child execution support.",
-        recommendation: "Keep the dogfood documentation explicit about fixture-only execution and leave live/manual readiness to #26.",
+        recommendation: "Keep the dogfood documentation explicit about fixture-only execution and leave live/manual readiness to #61.",
       }],
       nextActions: ["Do not claim production readiness from this scenario."],
     };
@@ -102,9 +102,9 @@ function envelopeForPrompt(prompt) {
         title: "Live Pi smoke remains outside deterministic dogfood",
         file: "docs/dogfood-alpha-scenario.md",
         evidence: "The documented scenario uses a deterministic local subprocess fixture and does not call a live Pi child or model.",
-        recommendation: "Track live/manual smoke coverage in #26 before alpha readiness.",
+        recommendation: "Track live/manual smoke coverage in #61 before alpha readiness.",
       }],
-      nextActions: ["Use #26 to cover live/manual Pi smoke before alpha readiness."],
+      nextActions: ["Use #61 to cover live/manual Pi smoke before alpha readiness."],
     };
   }
 
@@ -121,7 +121,7 @@ function envelopeForPrompt(prompt) {
       confidence: 0.9,
       nextActions: [
         "Document the deterministic result and limitation.",
-        "Use #26 for live/manual alpha readiness follow-up.",
+        "Use #61 for live/manual alpha readiness follow-up.",
       ],
     };
   }

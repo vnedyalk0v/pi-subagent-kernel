@@ -22,7 +22,7 @@ This is an alpha dogfood run against this repository using a deterministic local
 | `scout` | Reads `README.md`, `docs/dogfood-alpha-scenario.md`, `src/registry/built-in-agents.ts`, `src/tools/subagent-tools.ts`, `src/backends/subprocess-backend.ts`, `examples/mock-backend-demo.mjs`, and `tests/examples/mock-backend-demo.test.ts`. |
 | `reviewer` | Produces a low-severity finding that the deterministic dogfood run must not be used as a production-readiness claim. |
 | `tester` | Produces a low-severity test-risk finding that live Pi smoke coverage remains outside this deterministic dogfood run. |
-| `summarizer` | Deduplicates and carries forward the reviewer and tester findings, with `#26` as the live/manual alpha-readiness follow-up. |
+| `summarizer` | Deduplicates and carries forward the reviewer and tester findings, with `#61` as the live/manual alpha-readiness follow-up. |
 
 ## Follow-up ledger
 
@@ -30,6 +30,6 @@ This is an alpha dogfood run against this repository using a deterministic local
 |---|---:|---|
 | False positive | No | None opened. |
 | Scenario failure | No | None opened. |
-| Known limitation: no live Pi/model smoke in this deterministic fixture | Yes | #26 |
+| Known limitation: no live Pi/model smoke in this deterministic fixture | Yes | #61 |
 
 False positives and failures should be filed as new follow-up issues when observed. This deterministic run observed none.

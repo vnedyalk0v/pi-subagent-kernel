@@ -64,7 +64,7 @@ console.log(JSON.stringify({
     {
       signal: "known-limitation",
       observed: true,
-      followUpIssue: "#26",
+      followUpIssue: "#61",
       note: "Live/manual Pi smoke coverage remains an alpha-readiness checklist item, not a production-readiness claim.",
     },
   ],
