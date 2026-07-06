@@ -4,26 +4,23 @@
 
 Pi packages declare extension entrypoints through package metadata. Exact manifest fields should be verified against the current Pi package docs and examples before publishing.
 
-Conceptual `package.json`:
+Beta-prep `package.json` essentials:
 
 ```json
 {
   "name": "pi-subagent-kernel",
-  "version": "0.1.0",
+  "version": "0.1.0-beta.0",
   "type": "module",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "files": ["dist", "README.md", "LICENSE"],
   "pi": {
     "extensions": ["./dist/index.js"]
-  },
-  "peerDependencies": {
-    "@earendil-works/pi-coding-agent": ">=0.80.0"
   }
 }
 ```
 
-Verify peer version before final release.
+The current extension code uses a structural Pi API type and does not import Pi runtime packages, so no Pi peer dependency is bundled for beta pack validation. If future code imports `@earendil-works/*` Pi packages, follow Pi package docs and list those packages as peer dependencies with an appropriate owner-reviewed range before release.
 
 ## Versioning
 
@@ -82,19 +79,27 @@ Before publishing:
 
 ## Install docs
 
-Document the npm install form:
+Before npm publication is approved, document and verify the local tarball install path:
+
+```bash
+npm run build
+npm pack
+npm install /path/to/pi-subagent-kernel-0.1.0-beta.0.tgz
+```
+
+After a future approved publish, document the npm install form:
 
 ```bash
 pi install npm:pi-subagent-kernel
 ```
 
-Development:
+Development remains:
 
 ```bash
 pi -e ./src/index.ts
 ```
 
-Verify exact commands with the current Pi docs and local package behavior.
+Do not claim the npm package install form is verified until the package is published and tested through Pi.
 
 ## Security note
 
