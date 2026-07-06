@@ -34,6 +34,18 @@ The command runs a deterministic local subprocess fixture for the `scout`, `revi
 
 This scenario is alpha dogfood only: it does not call a model, use the network, start a live Pi child, or claim production readiness. Alpha readiness gates are listed in `docs/alpha-readiness-checklist.md`.
 
+## Alpha readiness smoke
+
+Verified command:
+
+```bash
+node examples/alpha-pi-extension-smoke.mjs
+```
+
+The command runs Pi `0.80.3` in local development mode with `-e ./src/index.ts`, offline startup, no discovered project resources, and no model prompt. It verifies that the MVP tools are registered and active, then exercises mock `subagent_spawn` → `subagent_status` → `subagent_result` plus queued `subagent_cancel` evidence.
+
+This smoke is alpha evidence only: it does not publish to npm, call a provider, start a live child Pi session, or claim production readiness. The full evidence ledger and limitations are documented in `docs/alpha-readiness-smoke.md`.
+
 ## What to build
 
 Build a Pi extension/package that provides a stable, safe, observable SubAgents layer:
