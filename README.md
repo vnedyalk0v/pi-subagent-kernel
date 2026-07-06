@@ -51,6 +51,7 @@ This smoke is alpha evidence only: it does not publish to npm, call a provider, 
 No npm package has been published yet. Until the owner approves publishing, verify installability from a local tarball:
 
 ```bash
+npm ci
 npm run build
 npm pack
 sample_dir=$(mktemp -d)
@@ -60,7 +61,7 @@ npm install /path/to/pi-subagent-kernel-0.1.0-beta.0.tgz
 node --input-type=module --eval "import('pi-subagent-kernel').then((m) => { if (typeof m.activate !== 'function') throw new Error('missing activate'); })"
 ```
 
-The package manifest points Pi at `./dist/index.js`; local extension development can still use `pi -e ./src/index.ts`. After a future approved npm publish, the intended Pi install form is:
+The package exports built files from `./dist`, while the Pi package manifest points at `./src/index.ts` so local-path, git, and tarball Pi installs load through Pi's TypeScript extension loader. Local extension development can also use `pi -e ./src/index.ts`. After a future approved npm publish, the intended Pi install form is:
 
 ```bash
 pi install npm:pi-subagent-kernel

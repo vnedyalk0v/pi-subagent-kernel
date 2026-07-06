@@ -13,14 +13,14 @@ Beta-prep `package.json` essentials:
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
-  "files": ["dist", "README.md", "LICENSE"],
+  "files": ["dist", "src", "README.md", "LICENSE"],
   "pi": {
-    "extensions": ["./dist/index.js"]
+    "extensions": ["./src/index.ts"]
   }
 }
 ```
 
-The current extension code uses a structural Pi API type and does not import Pi runtime packages, so no Pi peer dependency is bundled for beta pack validation. If future code imports `@earendil-works/*` Pi packages, follow Pi package docs and list those packages as peer dependencies with an appropriate owner-reviewed range before release.
+The package exports built JavaScript from `dist` for Node consumers, while Pi loads the TypeScript source entrypoint so local-path, git, and tarball installs do not require committed build artifacts. The current extension code uses a structural Pi API type and does not import Pi runtime packages, so no Pi peer dependency is bundled for beta pack validation. If future code imports `@earendil-works/*` Pi packages, follow Pi package docs and list those packages as peer dependencies with an appropriate owner-reviewed range before release.
 
 ## Versioning
 
@@ -82,6 +82,7 @@ Before publishing:
 Before npm publication is approved, document and verify the local tarball install path:
 
 ```bash
+npm ci
 npm run build
 npm pack
 npm install /path/to/pi-subagent-kernel-0.1.0-beta.0.tgz
