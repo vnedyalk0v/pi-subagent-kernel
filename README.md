@@ -67,7 +67,7 @@ The package exports built files from `./dist`, while the Pi package manifest poi
 pi install npm:pi-subagent-kernel
 ```
 
-Known beta limitations: the package is marked `UNLICENSED` until the owner chooses a license, no npm publish has been run, live provider/model execution is not verified, and subprocess execution remains alpha fixture-tested rather than production-ready.
+Known beta limitations: the package is marked `private: true` and `UNLICENSED` until the owner approves publishing and chooses a license, no npm publish has been run, live provider/model execution is not verified, and subprocess execution remains alpha fixture-tested rather than production-ready.
 
 ## What to build
 

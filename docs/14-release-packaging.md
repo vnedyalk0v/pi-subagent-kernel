@@ -10,6 +10,7 @@ Beta-prep `package.json` essentials:
 {
   "name": "pi-subagent-kernel",
   "version": "0.1.0-beta.0",
+  "private": true,
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -20,7 +21,7 @@ Beta-prep `package.json` essentials:
 }
 ```
 
-The package exports built JavaScript from `dist` for Node consumers, while Pi loads the TypeScript source entrypoint so local-path, git, and tarball installs do not require committed build artifacts. The current extension code uses a structural Pi API type and does not import Pi runtime packages, so no Pi peer dependency is bundled for beta pack validation. If future code imports `@earendil-works/*` Pi packages, follow Pi package docs and list those packages as peer dependencies with an appropriate owner-reviewed range before release.
+Keep `private: true` until the owner explicitly approves publishing. The package exports built JavaScript from `dist` for Node consumers, while Pi loads the TypeScript source entrypoint so local-path, git, and tarball installs do not require committed build artifacts. The current extension code uses a structural Pi API type and does not import Pi runtime packages, so no Pi peer dependency is bundled for beta pack validation. If future code imports `@earendil-works/*` Pi packages, follow Pi package docs and list those packages as peer dependencies with an appropriate owner-reviewed range before release.
 
 ## Versioning
 

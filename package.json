@@ -1,6 +1,7 @@
 {
   "name": "pi-subagent-kernel",
   "version": "0.1.0-beta.0",
+  "private": true,
   "description": "Safe Pi extension kernel for explicit subagent runs, registries, and mock/subprocess backends.",
   "type": "module",
   "keywords": [
