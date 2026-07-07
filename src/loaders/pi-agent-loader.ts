@@ -1,8 +1,8 @@
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { LineCounter, parseDocument } from "yaml";
 
 import { validateAgentDefinition, type AgentDefinition, type ValidationIssue } from "../contracts/agent-definition.ts";
+import { MarkdownAgentParseError, parseMarkdownAgentDocument, type MarkdownAgentIssue } from "./markdown-agent.ts";
 
 export interface PiAgentLoaderIssue {
   file: string;
@@ -68,15 +68,22 @@ export async function loadPiAgentDefinitions(
 }
 
 export function parsePiAgentMarkdown(source: string, file = "<agent>"): AgentDefinition {
-  const parts = splitFrontmatter(source, file);
-  const raw = parseYamlObject(parts.frontmatter, file, 2);
-  const instructions = parts.body.trim();
+  let parsed: { frontmatter: Record<string, unknown>; body: string };
+  try {
+    parsed = parseMarkdownAgentDocument(source, file);
+  } catch (error) {
+    if (error instanceof MarkdownAgentParseError) {
+      throw new PiAgentLoaderError(error.issues.map(toPiIssue));
+    }
+    throw error;
+  }
 
+  const instructions = parsed.body.trim();
   if (!instructions) {
     throw new PiAgentLoaderError([{ file, path: "instructions", message: "Markdown instructions body is required." }]);
   }
 
-  const result = validateAgentDefinition({ ...raw, instructions });
+  const result = validateAgentDefinition({ ...parsed.frontmatter, instructions });
   if (!result.ok) {
     throw new PiAgentLoaderError(result.issues.map((issue) => toLoaderIssue(file, issue)));
   }
@@ -92,73 +99,6 @@ async function readAgentDir(agentsDir: string) {
     }
     throw error;
   }
-}
-
-function splitFrontmatter(source: string, file: string): { frontmatter: string; body: string } {
-  const text = source.startsWith("\uFEFF") ? source.slice(1) : source;
-  const lines = text.split(/\r?\n/);
-
-  if (lines[0] !== "---") {
-    throw new PiAgentLoaderError([{ file, line: 1, message: "Missing YAML frontmatter delimiter '---'." }]);
-  }
-
-  const end = lines.findIndex((line, index) => index > 0 && line === "---");
-  if (end === -1) {
-    throw new PiAgentLoaderError([{ file, line: 1, message: "Missing closing YAML frontmatter delimiter '---'." }]);
-  }
-
-  return {
-    frontmatter: lines.slice(1, end).join("\n"),
-    body: lines.slice(end + 1).join("\n"),
-  };
-}
-
-function parseYamlObject(source: string, file: string, lineOffset: number): Record<string, unknown> {
-  const lineCounter = new LineCounter();
-  const document = parseDocument(source, {
-    lineCounter,
-    strict: true,
-    stringKeys: true,
-    uniqueKeys: true,
-  });
-  const issues = [...document.errors, ...document.warnings].map((error) => toYamlIssue(file, error, lineOffset));
-
-  if (issues.length > 0) {
-    throw new PiAgentLoaderError(issues);
-  }
-
-  let value: unknown;
-  try {
-    value = document.toJS({ maxAliasCount: 0 });
-  } catch (error) {
-    throw new PiAgentLoaderError([{ file, message: error instanceof Error ? error.message : String(error) }]);
-  }
-
-  const plain = readPlainYamlValue(value, file, "$");
-  if (!isRecord(plain)) {
-    throw new PiAgentLoaderError([{ file, line: lineOffset, message: "YAML frontmatter must be an object." }]);
-  }
-
-  return plain;
-}
-
-function readPlainYamlValue(value: unknown, file: string, path: string): unknown {
-  if (value === null || typeof value !== "object") {
-    return value;
-  }
-
-  if (Array.isArray(value)) {
-    return value.map((item, index) => readPlainYamlValue(item, file, `${path}[${index}]`));
-  }
-
-  const prototype = Object.getPrototypeOf(value);
-  if (prototype !== Object.prototype && prototype !== null) {
-    throw new PiAgentLoaderError([{ file, path, message: "YAML value must be a plain object, array, or scalar." }]);
-  }
-
-  return Object.fromEntries(
-    Object.entries(value as Record<string, unknown>).map(([key, item]) => [key, readPlainYamlValue(item, file, `${path}.${key}`)]),
-  );
 }
 
 function findDuplicateNames(loaded: Array<{ file: string; definition: AgentDefinition }>): PiAgentLoaderIssue[] {
@@ -182,12 +122,12 @@ function findDuplicateNames(loaded: Array<{ file: string; definition: AgentDefin
   return issues;
 }
 
-function toYamlIssue(file: string, error: { message: string; linePos?: Array<{ line: number }> }, lineOffset: number): PiAgentLoaderIssue {
-  const position = error.linePos?.[0];
+function toPiIssue(issue: MarkdownAgentIssue): PiAgentLoaderIssue {
   return {
-    file,
-    ...(position ? { line: lineOffset + position.line - 1 } : {}),
-    message: error.message,
+    file: issue.file,
+    message: issue.message,
+    ...(issue.line !== undefined ? { line: issue.line } : {}),
+    ...(issue.path ? { path: issue.path } : {}),
   };
 }
 
@@ -198,10 +138,6 @@ function toLoaderIssue(file: string, issue: ValidationIssue): PiAgentLoaderIssue
 function formatIssue(issue: PiAgentLoaderIssue): string {
   const location = [issue.file, issue.line, issue.path].filter((part) => part !== undefined && part !== "").join(":");
   return `${location}: ${issue.message}`;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {
