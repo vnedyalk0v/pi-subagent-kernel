@@ -29,11 +29,13 @@ const RPC_STDOUT_SAFE_STRINGS: ReadonlyMap<string, ReadonlySet<string>> = new Ma
 const RPC_STDOUT_SAFE_BOOLEANS = new Set(["success", "isError"]);
 const CHILD_SYSTEM_PROMPT = "You are an isolated Pi SubAgent Kernel child. Follow the user prompt and return only the requested JSON RunEnvelope.";
 
+export type SubprocessEnvironment = Record<string, string | undefined>;
+
 export interface SubprocessExecutionBackendOptions {
   command?: string;
   args?: readonly string[] | ((input: SpawnInput) => readonly string[]);
   cwd?: string;
-  env?: NodeJS.ProcessEnv;
+  env?: SubprocessEnvironment;
   now?: () => Date;
   killGraceMs?: number;
 }
@@ -72,7 +74,7 @@ export class SubprocessExecutionBackend implements ExecutionBackend {
   readonly #command: string;
   readonly #args: readonly string[] | ((input: SpawnInput) => readonly string[]);
   readonly #cwd: string | undefined;
-  readonly #env: NodeJS.ProcessEnv | undefined;
+  readonly #env: SubprocessEnvironment | undefined;
   readonly #now: () => Date;
   readonly #killGraceMs: number;
   readonly #runs = new Map<string, SubprocessRun>();
@@ -670,7 +672,7 @@ function appendParseCapture(current: string, chunk: string): string {
   return next.length <= MAX_STDOUT_LINE_BYTES ? next : next.slice(0, MAX_STDOUT_LINE_BYTES);
 }
 
-function trustedPathEnv(trustRoot = process.cwd()): NodeJS.ProcessEnv {
+function trustedPathEnv(trustRoot = process.cwd()): SubprocessEnvironment {
   const path = (process.env.PATH ?? "")
     .split(delimiter)
     .filter((entry) => isTrustedPathDir(entry, trustRoot))
@@ -678,7 +680,7 @@ function trustedPathEnv(trustRoot = process.cwd()): NodeJS.ProcessEnv {
   return path ? { PATH: path } : {};
 }
 
-function minimalEnv(trustRoot = process.cwd()): NodeJS.ProcessEnv {
+function minimalEnv(trustRoot = process.cwd()): SubprocessEnvironment {
   return {
     ...trustedPathEnv(trustRoot),
     ...(process.env.HOME ? { HOME: process.env.HOME } : {}),

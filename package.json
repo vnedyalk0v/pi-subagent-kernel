@@ -1,16 +1,31 @@
 {
   "name": "pi-subagent-kernel",
-  "version": "0.0.0",
+  "version": "0.1.0-beta.0",
   "private": true,
+  "description": "Safe Pi extension kernel for explicit subagent runs, registries, and mock/subprocess backends.",
   "type": "module",
   "keywords": [
-    "pi-package"
+    "pi-package",
+    "pi-extension",
+    "subagents",
+    "agent-orchestration",
+    "coding-agent"
   ],
+  "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vnedyalk0v/pi-subagent-kernel.git"
+  },
+  "bugs": {
+    "url": "https://github.com/vnedyalk0v/pi-subagent-kernel/issues"
+  },
+  "homepage": "https://github.com/vnedyalk0v/pi-subagent-kernel#readme",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
       "default": "./dist/index.js"
     }
   },

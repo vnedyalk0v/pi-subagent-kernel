@@ -46,6 +46,29 @@ The command runs Pi `0.80.3` in local development mode with `-e ./src/index.ts`,
 
 This smoke is alpha evidence only: it does not publish to npm, call a provider, start a live child Pi session, or claim production readiness. The full evidence ledger and limitations are documented in `docs/alpha-readiness-smoke.md`.
 
+## Package installation (beta prep)
+
+No npm package has been published yet. Until the owner approves publishing, verify installability from a local tarball:
+
+```bash
+npm ci
+npm run build
+npm pack
+sample_dir=$(mktemp -d)
+cd "$sample_dir"
+npm init -y
+npm install /path/to/pi-subagent-kernel-0.1.0-beta.0.tgz
+node --input-type=module --eval "import('pi-subagent-kernel').then((m) => { if (typeof m.activate !== 'function') throw new Error('missing activate'); })"
+```
+
+The package exports built files from `./dist`, while the Pi package manifest points at `./src/index.ts` so local-path, git, and tarball Pi installs load through Pi's TypeScript extension loader. Local extension development can also use `pi -e ./src/index.ts`. After a future approved npm publish, the intended Pi install form is:
+
+```bash
+pi install npm:pi-subagent-kernel
+```
+
+Known beta limitations: the package is marked `private: true` and `UNLICENSED` until the owner approves publishing and chooses a license, no npm publish has been run, live provider/model execution is not verified, and subprocess execution remains alpha fixture-tested rather than production-ready.
+
 ## What to build
 
 Build a Pi extension/package that provides a stable, safe, observable SubAgents layer:
