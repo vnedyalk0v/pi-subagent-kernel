@@ -64,7 +64,9 @@ Do not finalize file paths until current Pi config-dir APIs are inspected.
 
 ## Release checklist
 
-Before publishing:
+Use `docs/beta-release-checklist.md` as the public beta gate before publishing. It expands the required security review, docs check, CI pass, clean install, example agent load, known limitations, rollback plan, and release notes evidence.
+
+Minimum pre-publish checks remain:
 
 - [ ] Confirm supported Pi version range.
 - [ ] Confirm package manifest loads in Pi.
@@ -76,7 +78,7 @@ Before publishing:
 - [ ] Verify `npm pack` contents.
 - [ ] Install package from local tarball.
 - [ ] Update README with install and safety notes.
-- [ ] Update changelog.
+- [ ] Update changelog or release notes.
 
 ## Install docs
 
