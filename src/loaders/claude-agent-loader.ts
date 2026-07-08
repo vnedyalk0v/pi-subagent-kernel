@@ -1,4 +1,4 @@
-import { readdir, readFile } from "node:fs/promises";
+import { glob, readFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { validateAgentDefinition, type AgentDefinition, type ValidationIssue } from "../contracts/agent-definition.ts";
@@ -36,7 +36,7 @@ export class ClaudeAgentLoaderError extends Error {
   }
 }
 
-const CLAUDE_AGENT_KEYS = new Set(["name", "description", "tools", "disallowedTools", "model", "mcpServers", "skills"]);
+const CLAUDE_AGENT_KEYS = new Set(["name", "description", "tools", "disallowedTools", "model", "mcpServers", "skills", "maxTurns"]);
 const CLAUDE_TOOL_ALIASES = new Map([
   ["read", "read"],
   ["grep", "grep"],
@@ -55,11 +55,7 @@ export async function loadClaudeAgentDefinitions(
   options: LoadClaudeAgentDefinitionsOptions = {},
 ): Promise<ClaudeAgentImportResult[]> {
   const agentsDir = join(rootDir, ".claude", "agents");
-  const entries = await readAgentDir(agentsDir);
-  const files = entries
-    .filter((entry) => entry.isFile() && entry.name.endsWith(".md"))
-    .map((entry) => join(agentsDir, entry.name))
-    .sort((left, right) => left.localeCompare(right));
+  const files = await readMarkdownFiles(agentsDir);
 
   if (files.length > 0 && !options.trusted) {
     throw new ClaudeAgentLoaderError([
@@ -118,11 +114,15 @@ export function parseClaudeAgentMarkdown(source: string, file = "<claude-agent>"
   return { definition: result.value, warnings };
 }
 
-async function readAgentDir(agentsDir: string) {
+async function readMarkdownFiles(agentsDir: string): Promise<string[]> {
   try {
-    return await readdir(agentsDir, { withFileTypes: true });
+    const files: string[] = [];
+    for await (const file of glob("**/*.md", { cwd: agentsDir })) {
+      files.push(join(agentsDir, file));
+    }
+    return files.sort((left, right) => left.localeCompare(right));
   } catch (error) {
-    if (isNodeError(error) && error.code === "ENOENT") {
+    if (error instanceof Error && "code" in error && (error as NodeJS.ErrnoException).code === "ENOENT") {
       return [];
     }
     throw error;
@@ -147,10 +147,14 @@ function normalizeClaudeAgent(
     instructions,
   };
 
-  if (hasOwn(raw, "tools")) {
-    normalized.tools = normalizeClaudeToolList(raw.tools, "tools", file, warnings);
-  } else {
-    normalized.tools = [];
+  const disallowedTools = hasOwn(raw, "disallowedTools")
+    ? normalizeClaudeToolList(raw.disallowedTools, "disallowedTools", file, warnings, compatClaude)
+    : undefined;
+  const tools = hasOwn(raw, "tools")
+    ? normalizeClaudeToolList(raw.tools, "tools", file, warnings, compatClaude)
+    : [];
+
+  if (!hasOwn(raw, "tools")) {
     compatClaude.inheritedTools = true;
     warnings.push({
       file,
@@ -159,8 +163,9 @@ function normalizeClaudeAgent(
     });
   }
 
-  if (hasOwn(raw, "disallowedTools")) {
-    normalized.disallowedTools = normalizeClaudeToolList(raw.disallowedTools, "disallowedTools", file, warnings);
+  normalized.tools = applyDisallowedTools(tools, disallowedTools, file, warnings);
+  if (disallowedTools !== undefined) {
+    normalized.disallowedTools = disallowedTools;
   }
   if (hasOwn(raw, "model")) {
     normalized.model = raw.model;
@@ -168,8 +173,11 @@ function normalizeClaudeAgent(
   if (hasOwn(raw, "skills")) {
     normalized.skills = normalizeStringListLike(raw.skills);
   }
+  if (hasOwn(raw, "maxTurns")) {
+    normalized.maxTurns = raw.maxTurns;
+  }
   if (hasOwn(raw, "mcpServers")) {
-    normalized.mcpServers = raw.mcpServers;
+    normalized.mcpServers = normalizeClaudeMcpServers(raw.mcpServers, file, warnings, compatClaude);
     warnings.push({
       file,
       path: "mcpServers",
@@ -213,6 +221,7 @@ function normalizeClaudeToolList(
   path: string,
   file: string,
   warnings: ClaudeAgentImportWarning[],
+  compatClaude: Record<string, unknown>,
 ): unknown {
   const list = normalizeStringListLike(value);
   if (!Array.isArray(list)) {
@@ -223,19 +232,114 @@ function normalizeClaudeToolList(
     if (typeof tool !== "string") {
       return tool;
     }
-    const normalized = CLAUDE_TOOL_ALIASES.get(tool.trim().toLowerCase()) ?? tool.trim();
-    if (tool.trim().toLowerCase() === "glob") {
+    const trimmed = tool.trim();
+    const scoped = /^(?<name>[A-Za-z][A-Za-z0-9_-]*)\(.+\)$/.exec(trimmed);
+    const aliasKey = (scoped?.groups?.name ?? trimmed).toLowerCase();
+    const normalized = CLAUDE_TOOL_ALIASES.get(aliasKey) ?? trimmed;
+    if (aliasKey === "glob") {
       warnings.push({ file, path: `${path}[${index}]`, message: "Claude Glob maps to Pi find; glob semantics are not identical." });
+    }
+    if (scoped) {
+      const scopedTools = Array.isArray(compatClaude.scopedTools) ? compatClaude.scopedTools : [];
+      scopedTools.push(trimmed);
+      compatClaude.scopedTools = scopedTools;
+      warnings.push({
+        file,
+        path: `${path}[${index}]`,
+        message: `Claude scoped tool "${trimmed}" maps to "${normalized}"; scoped arguments are preserved as metadata only.`,
+      });
     }
     return normalized;
   });
 }
 
+function applyDisallowedTools(
+  tools: unknown,
+  disallowedTools: unknown,
+  file: string,
+  warnings: ClaudeAgentImportWarning[],
+): unknown {
+  if (!Array.isArray(tools) || !Array.isArray(disallowedTools)) {
+    return tools;
+  }
+  const denied = new Set(disallowedTools.filter((tool): tool is string => typeof tool === "string"));
+  const filtered = tools.filter((tool) => typeof tool !== "string" || !denied.has(tool));
+  if (filtered.length !== tools.length) {
+    warnings.push({
+      file,
+      path: "tools",
+      message: "Claude disallowedTools removed matching entries from the imported tools allowlist.",
+    });
+  }
+  return filtered;
+}
+
+function normalizeClaudeMcpServers(
+  value: unknown,
+  file: string,
+  warnings: ClaudeAgentImportWarning[],
+  compatClaude: Record<string, unknown>,
+): unknown {
+  if (Array.isArray(value)) {
+    const names: unknown[] = [];
+    value.forEach((item, index) => {
+      if (typeof item === "string") {
+        names.push(item);
+      } else if (isRecord(item)) {
+        for (const [name, config] of Object.entries(item)) {
+          names.push(name);
+          rememberMcpConfig(compatClaude, name, config);
+        }
+        warnings.push({
+          file,
+          path: `mcpServers[${index}]`,
+          message: "Inline Claude MCP server config was preserved under compat.claude.mcpServers and is not executed.",
+        });
+      } else {
+        names.push(item);
+      }
+    });
+    return names;
+  }
+  if (isRecord(value)) {
+    for (const [name, config] of Object.entries(value)) {
+      rememberMcpConfig(compatClaude, name, config);
+    }
+    return Object.keys(value);
+  }
+  return normalizeStringListLike(value);
+}
+
 function normalizeStringListLike(value: unknown): unknown {
   if (typeof value === "string") {
-    return value.split(",").map((item) => item.trim()).filter(Boolean);
+    return splitTopLevelCommas(value);
   }
   return value;
+}
+
+function splitTopLevelCommas(value: string): string[] {
+  const items: string[] = [];
+  let start = 0;
+  let depth = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    const char = value[index];
+    if (char === "(") {
+      depth += 1;
+    } else if (char === ")" && depth > 0) {
+      depth -= 1;
+    } else if (char === "," && depth === 0) {
+      items.push(value.slice(start, index).trim());
+      start = index + 1;
+    }
+  }
+  items.push(value.slice(start).trim());
+  return items.filter(Boolean);
+}
+
+function rememberMcpConfig(compatClaude: Record<string, unknown>, name: string, config: unknown): void {
+  const existing = isRecord(compatClaude.mcpServers) ? compatClaude.mcpServers : {};
+  existing[name] = config;
+  compatClaude.mcpServers = existing;
 }
 
 function findDuplicateNames(loaded: Array<{ file: string; result: ClaudeAgentImportResult }>): ClaudeAgentLoaderIssue[] {
@@ -281,6 +385,6 @@ function hasOwn(record: Record<string, unknown>, key: string): boolean {
   return Object.prototype.hasOwnProperty.call(record, key);
 }
 
-function isNodeError(error: unknown): error is NodeJS.ErrnoException {
-  return error instanceof Error && "code" in error;
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

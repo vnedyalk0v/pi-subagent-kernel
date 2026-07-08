@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
 
 import { ClaudeAgentLoaderError, loadClaudeAgentDefinitions, parseClaudeAgentMarkdown } from "../../src/index.ts";
@@ -11,6 +11,7 @@ name: claude_reviewer
 description: Reviews code using Claude-style metadata.
 tools: Read, Grep, Glob
 model: claude-sonnet-4
+maxTurns: 4
 skills:
   - review
 ---
@@ -26,6 +27,7 @@ describe("Claude agent importer", () => {
     assert.equal(result.definition.instructions, "Review the change and return actionable findings.");
     assert.deepEqual(result.definition.tools, ["read", "grep", "find"]);
     assert.equal(result.definition.model, "claude-sonnet-4");
+    assert.equal(result.definition.maxTurns, 4);
     assert.deepEqual(result.definition.skills, ["review"]);
     assert.equal(result.definition.compat?.source, "claude");
     assert.equal(result.definition.compat?.sourcePath, "reviewer.md");
@@ -47,6 +49,41 @@ Gather evidence.
     assert.deepEqual(result.definition.tools, []);
     assert.equal((result.definition.compat?.claude as { inheritedTools?: boolean }).inheritedTools, true);
     assert.match(result.warnings[0]?.message ?? "", /empty allowlist/);
+  });
+
+  it("applies Claude disallowedTools to imported tool allowlists", () => {
+    const result = parseClaudeAgentMarkdown(
+      `---
+name: deny_bash
+description: Denies Bash after allowing it.
+tools: [Read, Bash]
+disallowedTools: [Bash]
+---
+Review without shell.
+`,
+      "deny-bash.md",
+    );
+
+    assert.deepEqual(result.definition.tools, ["read"]);
+    assert.deepEqual(result.definition.disallowedTools, ["bash"]);
+    assert.ok(result.warnings.some((warning) => /removed matching entries/.test(warning.message)));
+  });
+
+  it("parses scoped Claude tool specs without splitting nested commas", () => {
+    const result = parseClaudeAgentMarkdown(
+      `---
+name: scoped_agent
+description: Uses scoped Agent syntax.
+tools: Agent(worker, researcher), Read
+---
+Delegate only if policy allows it.
+`,
+      "scoped.md",
+    );
+
+    assert.deepEqual(result.definition.tools, ["subagent_spawn", "read"]);
+    assert.deepEqual((result.definition.compat?.claude as { scopedTools?: string[] }).scopedTools, ["Agent(worker, researcher)"]);
+    assert.ok(result.warnings.some((warning) => /scoped arguments are preserved/.test(warning.message)));
   });
 
   it("preserves unsupported Claude fields as compatibility metadata with warnings", () => {
@@ -75,18 +112,24 @@ Review safely.
     const result = parseClaudeAgentMarkdown(
       `---
 name: mcp_reviewer
-description: Requests a docs MCP server.
+description: Requests MCP servers.
 tools: [Read]
 mcpServers:
-  docs: {}
+  - playwright:
+      command: npx
+  - github
 ---
 Review with docs if policy allows it.
 `,
       "mcp.md",
     );
 
-    assert.deepEqual(result.definition.sandbox.mcpServers, ["docs"]);
+    assert.deepEqual(result.definition.sandbox.mcpServers, ["playwright", "github"]);
+    assert.deepEqual((result.definition.compat?.claude as { mcpServers?: Record<string, unknown> }).mcpServers, {
+      playwright: { command: "npx" },
+    });
     assert.ok(result.warnings.some((warning) => /explicit MCP allowlist/.test(warning.message)));
+    assert.ok(result.warnings.some((warning) => /Inline Claude MCP server config/.test(warning.message)));
   });
 
   it("rejects invalid supported fields with loader issues", () => {
@@ -109,15 +152,15 @@ Body.
     );
   });
 
-  it("loads .claude/agents/*.md files in deterministic order", async () => {
+  it("loads .claude/agents/**/*.md files in deterministic order", async () => {
     await withTempRoot(async (root) => {
       await writeAgent(root, "b.md", validClaudeReviewer.replace("claude_reviewer", "z_reviewer"));
-      await writeAgent(root, "a.md", validClaudeReviewer);
+      await writeAgent(root, "nested/a.md", validClaudeReviewer);
       await writeFile(join(root, ".claude", "agents", "ignore.txt"), "not an agent");
 
       const results = await loadClaudeAgentDefinitions(root, { trusted: true });
 
-      assert.deepEqual(results.map((result) => result.definition.name), ["claude_reviewer", "z_reviewer"]);
+      assert.deepEqual(results.map((result) => result.definition.name), ["z_reviewer", "claude_reviewer"]);
     });
   });
 
@@ -159,7 +202,7 @@ async function withTempRoot(run: (root: string) => Promise<void>): Promise<void>
 }
 
 async function writeAgent(root: string, fileName: string, source: string): Promise<void> {
-  const agentsDir = join(root, ".claude", "agents");
-  await mkdir(agentsDir, { recursive: true });
-  await writeFile(join(agentsDir, fileName), source);
+  const file = join(root, ".claude", "agents", fileName);
+  await mkdir(dirname(file), { recursive: true });
+  await writeFile(file, source);
 }
