@@ -44,18 +44,22 @@ Claude Code subagents are Markdown files with YAML frontmatter. `name` and `desc
 
 ### Import mapping
 
+Implemented API: `loadClaudeAgentDefinitions(rootDir, { trusted: true })` imports project-local `.claude/agents/**/*.md` files, and `parseClaudeAgentMarkdown(source, file)` imports one Markdown definition. Project-local Claude files require explicit trust just like project-local Pi definitions.
+
 | Claude field | Pi-native field | Notes |
 |---|---|---|
 | `name` | `name` | Preserve if valid. |
 | `description` | `description` | Preserve. |
-| body | body | Preserve. |
-| `tools` | `tools` | Map names through tool alias table. |
-| `disallowedTools` | `disallowedTools` | Apply after allowlist per policy. |
-| `model` | `model` | Provider-specific resolution required. |
-| `mcpServers` | `mcpServers` | Require trust/allowlist. |
+| body | `instructions` | Preserve as the agent instructions body. |
+| `tools` | `tools` | Map names through the implemented tool alias table; omitted tools become an empty allowlist with a warning rather than inheriting all tools. |
+| `disallowedTools` | `disallowedTools` | Applied to remove matching entries from the imported `tools` allowlist, then preserved as a denylist. |
+| `model` | `model` | Preserved as a requested model string; provider-specific resolution is not performed by the importer. |
+| `maxTurns` | `maxTurns` | Preserved as a runtime limit. |
+| `mcpServers` | `mcpServers` | Imported as requested server names; inline server configs are preserved under `compat.claude.mcpServers`, but spawn still requires explicit MCP allowlist policy. |
 | `skills` | `skills` | Preserve as requested skills. |
-| `isolation: worktree` | `runtime: worktree` | Only if worktree backend available. |
-| hooks | `compat.claude.hooks` | Do not execute in MVP unless explicitly implemented. |
+| `isolation: worktree` | `compat.claude.unsupported.isolation` | Preserved with a warning; no worktree runtime behavior is enabled by the importer. |
+| hooks | `compat.claude.unsupported.hooks` | Preserved with a warning; never executed by the importer. |
+| other Claude-only fields | `compat.claude.unsupported` | Preserved with warnings, not silently ignored. |
 
 ### Tool alias mapping examples
 
@@ -69,7 +73,7 @@ Claude Code subagents are Markdown files with YAML frontmatter. `name` and `desc
 | `Write` | `write` |
 | `Agent` / `Task` | `subagent_spawn` compatibility alias |
 
-Verify actual Pi tool names from the installed version before finalizing aliases.
+Current importer aliases are intentionally narrow: `Read`→`read`, `Grep`→`grep`, `Glob`→`find` with a warning, `LS`→`ls`, `Bash`→`bash`, `Edit`/`MultiEdit`→`edit`, `Write`→`write`, and `Agent`/`Task`→`subagent_spawn`. Scoped tool strings such as `Agent(worker, researcher)` are split on top-level commas only, mapped by base tool name, and preserved under `compat.claude.scopedTools`. These aliases only normalize definitions; the spawn safety policy can still deny shell, write, MCP, or nested-subagent tools.
 
 ### Behavior not copied by default
 
@@ -110,17 +114,23 @@ Recommendation:
 
 ## Compatibility diagnostics
 
-Every imported agent should expose:
+Every imported agent should expose compatibility metadata. The Claude importer currently stores this under `AgentDefinition.compat` and also returns structured warning objects from the importer result:
 
 ```json
 {
-  "source": "claude|codex|opencode|pi",
+  "source": "claude",
   "sourcePath": "...",
   "lossy": true,
   "warnings": [
-    "Claude hooks are preserved as metadata but not executed.",
-    "Omitted tools were treated as empty allowlist by project policy."
-  ]
+    "hooks: Unsupported Claude field \"hooks\" was preserved under compat.claude.unsupported and is not executed.",
+    "tools: Claude omitted tools; Pi import uses an empty allowlist instead of inheriting all tools."
+  ],
+  "claude": {
+    "inheritedTools": true,
+    "unsupported": {
+      "hooks": {}
+    }
+  }
 }
 ```
 
